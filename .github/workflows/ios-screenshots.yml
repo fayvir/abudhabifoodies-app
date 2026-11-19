@@ -62,11 +62,28 @@ jobs:
       - name: Take the screenshots
         env:
           # The XCTest driver can take over the 2-minute default to start on a busy runner.
-          MAESTRO_DRIVER_STARTUP_TIMEOUT: '300000'
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: '240000'
           MAESTRO_CLI_NO_ANALYTICS: '1'
         run: |
+          set -o pipefail   # maestro's exit status must survive the pipe into tee
           mkdir -p screenshots
-          maestro --device "$DEVICE" test .maestro/screenshots.yaml
+          # Warm-up: the first app launch after boot is slow, and Maestro's XCTest
+          # driver sometimes never starts on a cold simulator (seen twice; the run
+          # where it worked had the driver up in 30 s). One retry after a simulator
+          # restart covers that; a failing flow step still fails the job.
+          xcrun simctl launch "$DEVICE" ae.abudhabifoodies.app || true
+          sleep 20
+          xcrun simctl terminate "$DEVICE" ae.abudhabifoodies.app || true
+          for attempt in 1 2; do
+            if maestro --device "$DEVICE" test .maestro/screenshots.yaml 2>&1 | tee "maestro-$attempt.log"; then break; fi
+            if [ "$attempt" = 2 ] || ! grep -q "iOS driver not ready in time" "maestro-$attempt.log"; then exit 1; fi
+            echo "Driver did not start; restarting the simulator and trying once more"
+            xcrun simctl shutdown "$DEVICE" || true
+            xcrun simctl boot "$DEVICE"
+            xcrun simctl bootstatus "$DEVICE" -b
+            xcrun simctl status_bar "$DEVICE" override --time "9:41" --dataNetwork wifi --wifiBars 3 \
+              --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          done
           ls -la screenshots
           sips -g pixelWidth -g pixelHeight screenshots/*.png
 
