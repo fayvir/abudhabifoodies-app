@@ -1,0 +1,80 @@
+name: iOS screenshots
+
+# App Store screenshots from the real app on a 6.9" iPhone simulator (the one size
+# App Store Connect requires for an iPhone-only app). No signing, no secrets, no
+# upload: the PNGs come back as a run artifact. 
+# Manual only (Actions > iOS screenshots > Run workflow): each run is ~30 macOS
+# minutes, which bill at about 10x Linux minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-screenshots
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: npm ci
+      - name: Generate the Xcode project
+        run: npx expo prebuild --platform ios --clean
+
+      # Release so the JS bundle is embedded (no Metro server on the runner).
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild build -workspace ios/AbuDhabiFoodies.xcworkspace -scheme AbuDhabiFoodies \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO | tail -n 40
+
+      - name: Boot a 6.9-inch iPhone with a clean status bar
+        run: |
+          xcrun simctl list devices available
+          DEVICE=$(xcrun simctl list devices available | grep -E 'iPhone 1[6-9] Pro Max' | head -n 1 | grep -oE '[0-9A-F-]{36}')
+          if [ -z "$DEVICE" ]; then echo "No Pro Max simulator on this runner"; exit 1; fi
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl ui "$DEVICE" appearance light
+          xcrun simctl status_bar "$DEVICE" override --time "9:41" --dataNetwork wifi --wifiBars 3 \
+            --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          xcrun simctl install "$DEVICE" build/Build/Products/Release-iphonesimulator/AbuDhabiFoodies.app
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Take the screenshots
+        env:
+          # The XCTest driver can take over the 2-minute default to start on a busy runner.
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: '300000'
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        run: |
+          mkdir -p screenshots
+          maestro --device "$DEVICE" test .maestro/screenshots.yaml
+          ls -la screenshots
+          sips -g pixelWidth -g pixelHeight screenshots/*.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-store-screenshots
+          path: |
+            screenshots/
+            ~/.maestro/tests/
+          if-no-files-found: warn
