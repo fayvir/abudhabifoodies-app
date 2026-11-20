@@ -100,12 +100,12 @@ describe('ResultCard photos', () => {
 
   it('shows one dot per photo with the first active, and moves the active dot on swipe', async () => {
     const view = await render(<ResultCard card={pick({ photos: ['https://x/1', 'https://x/2', 'https://x/3'] })} />);
-    expect(view.getAllByTestId('photo-dot')).toHaveLength(2);
-    expect(view.getAllByTestId('photo-dot-active')).toHaveLength(1);
+    expect(view.getAllByTestId('photo-dot', { includeHiddenElements: true })).toHaveLength(2);
+    expect(view.getAllByTestId('photo-dot-active', { includeHiddenElements: true })).toHaveLength(1);
     await fireEvent(view.getByTestId('photo-carousel'), 'layout', { nativeEvent: { layout: { width: 300, height: 169 } } });
     const scroller = view.getByTestId('photo-scroller');
     await fireEvent(scroller, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 600, y: 0 } } });
-    await waitFor(() => expect(view.getAllByTestId(/^photo-dot(-active)?$/).map((d) => d.props.testID)).toEqual(['photo-dot', 'photo-dot', 'photo-dot-active']));
+    await waitFor(() => expect(view.getAllByTestId(/^photo-dot(-active)?$/, { includeHiddenElements: true }).map((d) => d.props.testID)).toEqual(['photo-dot', 'photo-dot', 'photo-dot-active']));
   });
 
   it('labels each photo for screen readers and shows a repeated URL once', async () => {
@@ -117,7 +117,7 @@ describe('ResultCard photos', () => {
   it('has no dots for a single photo', async () => {
     const view = await render(<ResultCard card={pick({ photos: ['https://x/1'] })} />);
     expect(urls(view)).toEqual(['https://x/1']);
-    expect(view.queryByTestId('photo-dots')).toBeNull();
+    expect(view.queryByTestId('photo-dots', { includeHiddenElements: true })).toBeNull();
   });
 
   it('drops a photo that fails to load and keeps the others', async () => {
