@@ -28,7 +28,7 @@ appId: ae.abudhabifoodies.app
 # Give the restaurant photo time to download before the shot.
 - extendedWaitUntil:
     visible:
-      id: "result-photo"
+      id: "result-photo-0"
     timeout: 15000
     optional: true
 - waitForAnimationToEnd:

@@ -87,28 +87,56 @@ describe('ResultCard sponsored disclosure', () => {
 });
 
 describe('ResultCard photos', () => {
-  it('shows the first photo', async () => {
-    const view = await render(<ResultCard card={pick()} />);
-    expect(view.getByTestId('result-photo').props.source).toEqual({ uri: 'https://lh3.googleusercontent.com/a' });
+  const urls = (view: Awaited<ReturnType<typeof render>>) =>
+    view.queryAllByTestId(/^result-photo-\d+$/).map((n) => n.props.source.uri);
+
+  it('shows every photo in a swipeable carousel, in order', async () => {
+    const view = await render(<ResultCard card={pick({ photos: ['https://x/1', 'https://x/2', 'https://x/3'] })} />);
+    expect(urls(view)).toEqual(['https://x/1', 'https://x/2', 'https://x/3']);
+    const scroller = view.getByTestId('photo-scroller');
+    expect(scroller.props.horizontal).toBe(true);
+    expect(scroller.props.pagingEnabled).toBe(true);
   });
 
-  it('drops a photo that fails to load and falls through to the next one', async () => {
-    const view = await render(<ResultCard card={pick()} />);
-    await fireEvent(view.getByTestId('result-photo'), 'error');
-    expect(view.getByTestId('result-photo').props.source).toEqual({ uri: 'https://lh3.googleusercontent.com/b' });
+  it('shows one dot per photo with the first active, and moves the active dot on swipe', async () => {
+    const view = await render(<ResultCard card={pick({ photos: ['https://x/1', 'https://x/2', 'https://x/3'] })} />);
+    expect(view.getAllByTestId('photo-dot')).toHaveLength(2);
+    expect(view.getAllByTestId('photo-dot-active')).toHaveLength(1);
+    await fireEvent(view.getByTestId('photo-carousel'), 'layout', { nativeEvent: { layout: { width: 300, height: 169 } } });
+    const scroller = view.getByTestId('photo-scroller');
+    await fireEvent(scroller, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 600, y: 0 } } });
+    await waitFor(() => expect(view.getAllByTestId(/^photo-dot(-active)?$/).map((d) => d.props.testID)).toEqual(['photo-dot', 'photo-dot', 'photo-dot-active']));
+  });
+
+  it('labels each photo for screen readers and shows a repeated URL once', async () => {
+    const view = await render(<ResultCard card={pick({ photos: ['https://x/1', 'https://x/2', 'https://x/1'] })} />);
+    expect(urls(view)).toEqual(['https://x/1', 'https://x/2']);
+    expect(view.getByTestId('result-photo-1').props.accessibilityLabel).toBe('Photo 2 of 2');
+  });
+
+  it('has no dots for a single photo', async () => {
+    const view = await render(<ResultCard card={pick({ photos: ['https://x/1'] })} />);
+    expect(urls(view)).toEqual(['https://x/1']);
+    expect(view.queryByTestId('photo-dots')).toBeNull();
+  });
+
+  it('drops a photo that fails to load and keeps the others', async () => {
+    const view = await render(<ResultCard card={pick({ photos: ['https://x/1', 'https://x/2', 'https://x/3'] })} />);
+    await fireEvent(view.getByTestId('result-photo-0'), 'error');
+    expect(urls(view)).toEqual(['https://x/2', 'https://x/3']);
   });
 
   it('shows the branded placeholder once every photo has failed', async () => {
     const view = await render(<ResultCard card={pick({ photos: ['https://lh3.googleusercontent.com/a'] })} />);
-    await fireEvent(view.getByTestId('result-photo'), 'error');
-    expect(view.queryByTestId('result-photo')).toBeNull();
+    await fireEvent(view.getByTestId('result-photo-0'), 'error');
+    expect(view.queryByTestId('photo-carousel')).toBeNull();
     expect(view.getByTestId('photo-placeholder')).toBeTruthy();
   });
 
   it.each([[null], [[]]])('shows the placeholder when photos is %p', async (photos) => {
     const view = await render(<ResultCard card={pick({ photos })} />);
     expect(view.getByTestId('photo-placeholder')).toBeTruthy();
-    expect(view.queryByTestId('result-photo')).toBeNull();
+    expect(view.queryByTestId('photo-carousel')).toBeNull();
   });
 
   it('does not show the placeholder while a photo is showing', async () => {

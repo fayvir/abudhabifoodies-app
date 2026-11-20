@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
-import { Alert, Image, Linking, Pressable, Share, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Alert, Linking, Pressable, Share, StyleSheet, Text, View, useColorScheme } from 'react-native';
 
 import type { ResultCard as ResultCardData } from '../api/types';
 import { useFavourites } from '../favourites/useFavourites';
@@ -8,6 +8,7 @@ import { instagramUrl } from '../lib/links';
 import { priceAedLabel } from '../lib/price';
 import { buildShareText } from '../lib/share';
 import { useTheme } from '../theme/useTheme';
+import { PhotoCarousel } from './PhotoCarousel';
 import { RestaurantActions } from './RestaurantActions';
 import { stickerShadow } from './stickerShadow';
 
@@ -27,7 +28,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
   // Google photo URLs are short-lived: a failed one is dropped, not retried.
   const [failed, setFailed] = useState<readonly string[]>([]);
 
-  const photo = (card.photos ?? []).find((u) => !failed.includes(u));
+  const photos = [...new Set(card.photos ?? [])].filter((u) => !failed.includes(u));
   const cuisines = card.cuisine ?? [];
   const price = priceAedLabel(card.price_range);
   const advertiser = card.advertiser_name?.trim();
@@ -42,15 +43,8 @@ export function ResultCard({ card }: { card: ResultCardData }) {
         stickerShadow(theme, dark),
       ]}
     >
-      {photo ? (
-        <Image
-          testID="result-photo"
-          source={{ uri: photo }}
-          accessibilityIgnoresInvertColors
-          onError={() => setFailed((f) => [...f, photo])}
-          style={[styles.photo, { borderBottomColor: theme.borderStrong }]}
-          resizeMode="cover"
-        />
+      {photos.length > 0 ? (
+        <PhotoCarousel photos={photos} onPhotoError={(url) => setFailed((f) => [...f, url])} />
       ) : (
         <View
           testID="photo-placeholder"
