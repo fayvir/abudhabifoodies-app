@@ -30,7 +30,8 @@ permissions:
 
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  # Only PR checks are superseded by a newer push; a signed build is never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -67,7 +68,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
 
-      # versionCode = run number * 10 + attempt: always increases, and a "Re-run"
+      # versionCode = run number * 100 + attempt: always increases, and a "Re-run"
       # still gets a new number (Play rejects a reused versionCode).
       - name: Set version and versionCode
         run: |
@@ -78,7 +79,7 @@ jobs:
             echo "::error::Version '$VERSION' is not 1, 1.2 or 1.2.3 (tags must look like android-v1.2.3)"
             exit 1
           fi
-          CODE="$((GITHUB_RUN_NUMBER * 10 + GITHUB_RUN_ATTEMPT))"
+          CODE="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
           node -e "
             const fs = require('fs');
             const j = JSON.parse(fs.readFileSync('app.json', 'utf8'));
