@@ -10,6 +10,8 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 jest.mock('expo-router', () => ({ Stack: () => null }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
+jest.mock('expo-splash-screen', () => ({ hideAsync: jest.fn(() => Promise.resolve()), preventAutoHideAsync: jest.fn(() => Promise.resolve(true)) }));
+jest.mock('../components/BrandSplash', () => ({ BrandSplash: () => null }));
 
 let setScheme: jest.SpyInstance;
 
@@ -55,5 +57,11 @@ describe('root layout analytics preference', () => {
     await render(<RootLayout />);
     await waitFor(() => expect(AsyncStorage.getItem).toHaveBeenCalledWith('abf_analytics'));
     expect(isAnalyticsEnabled()).toBe(true);
+  });
+});
+
+describe('root layout splash', () => {
+  it('holds the native splash at start (BrandSplash hides it once drawn)', () => {
+    expect(jest.requireMock('expo-splash-screen').preventAutoHideAsync).toHaveBeenCalled();
   });
 });

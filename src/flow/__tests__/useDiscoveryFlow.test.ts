@@ -7,7 +7,9 @@ import * as client from '../../api/client';
 import type { DiscoveryOption, DiscoveryQuestionWithOptions as Q, DiscoverySnapshot } from '../../api/types';
 import { SNAPSHOT_STORAGE_KEY } from '../../snapshot/store';
 import { opt, pick, question, snapshot } from '../../testing/builders';
+import { FLOW_PACING } from '../pacing';
 import { useDiscoveryFlow } from '../useDiscoveryFlow';
+import { __resetSnapshotForTests } from '../../snapshot/useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -68,6 +70,7 @@ let qs: Q[];
 let snap: DiscoverySnapshot;
 
 beforeEach(async () => {
+  __resetSnapshotForTests();
   // Not resetAllMocks: that also wipes the AsyncStorage mock's in-memory store.
   jest.clearAllMocks();
   api.getSnapshot.mockReset();
@@ -325,6 +328,21 @@ describe('useDiscoveryFlow resolving', () => {
     expect(api.reportCompletion).not.toHaveBeenCalled();
   });
 
+  it('malformed result data ends in the error outcome instead of a stuck screen', async () => {
+    api.getSnapshot.mockResolvedValue({
+      ok: true,
+      data: fixture(qs, {
+        results: { [`budget=budget_2&cuisine=a&${VIBE_KEY}=trendy`]: { editorial: 'x', sponsored: [] } as never },
+      }),
+    });
+    const hook = await ready();
+    await answerAs(hook, 'cuisine', 'a');
+    await answerAs(hook, 'budget', 'budget_2');
+    await answerAs(hook, VIBE_KEY, 'trendy');
+    expect(hook.result.current.status).toBe('done');
+    expect(hook.result.current.outcome).toEqual({ kind: 'error', message: 'Something went wrong — please try again.' });
+  });
+
   it('a report that fails or throws never affects the result', async () => {
     api.reportCompletion.mockImplementation(() => {
       throw new Error('boom');
@@ -429,5 +447,83 @@ describe('useDiscoveryFlow unexpected failures', () => {
     expect(hook.result.current.status).toBe('ready');
     await answerAs(hook, 'cuisine', 'a');
     expect(hook.result.current.question?.key).toBe('budget');
+  });
+});
+
+describe('useDiscoveryFlow chat pacing', () => {
+  beforeEach(() => {
+    FLOW_PACING.questionMs = 700;
+    FLOW_PACING.resultMs = 1200;
+  });
+  afterEach(() => {
+    FLOW_PACING.questionMs = 0;
+    FLOW_PACING.resultMs = 0;
+    jest.useRealTimers();
+  });
+
+  async function readyWithFakeTimers() {
+    const hook = await ready();
+    jest.useFakeTimers();
+    return hook;
+  }
+
+  it('shows the typing state, not the next question, until the question pause is over', async () => {
+    const hook = await readyWithFakeTimers();
+    await answerAs(hook, 'cuisine', 'a');
+    expect(hook.result.current.status).toBe('thinking');
+    expect(hook.result.current.question).toBeNull();
+    expect(hook.result.current.transcript).toHaveLength(1); // the answer bubble is there at once
+    expect(api.trackFlowEvent.mock.calls.filter((c) => c[1] === 'question_seen')).toHaveLength(1);
+
+    await act(async () => jest.advanceTimersByTime(699));
+    expect(hook.result.current.status).toBe('thinking');
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(hook.result.current.status).toBe('ready');
+    expect(hook.result.current.question?.key).toBe('budget');
+    expect(api.trackFlowEvent.mock.calls.filter((c) => c[1] === 'question_seen')).toHaveLength(2);
+  });
+
+  it('waits the longer result pause before the recommendation and only then reports it', async () => {
+    const hook = await readyWithFakeTimers();
+    await answerAs(hook, 'cuisine', 'a');
+    await act(async () => jest.advanceTimersByTime(700));
+    await answerAs(hook, 'budget', 'budget_2');
+    await act(async () => jest.advanceTimersByTime(700));
+    await answerAs(hook, VIBE_KEY, 'trendy');
+    await act(async () => jest.advanceTimersByTime(1199));
+    expect(hook.result.current.outcome).toBeNull();
+    expect(api.reportCompletion).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(hook.result.current.outcome).toEqual({ kind: 'pick', picks: [FALAFEL] });
+    expect(api.reportCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores taps during the pause', async () => {
+    const hook = await readyWithFakeTimers();
+    await answerAs(hook, 'cuisine', 'a');
+    await answerAs(hook, 'cuisine', 'b');
+    await act(async () => jest.advanceTimersByTime(700));
+    expect(hook.result.current.transcript).toHaveLength(1);
+    expect(hook.result.current.question?.key).toBe('budget');
+  });
+
+  it('restarting during the pause cancels it: the old question never appears', async () => {
+    const hook = await readyWithFakeTimers();
+    await answerAs(hook, 'cuisine', 'a');
+    await act(async () => {
+      hook.result.current.restart();
+    });
+    expect(hook.result.current.status).toBe('ready');
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(hook.result.current.question?.key).toBe('cuisine');
+    expect(hook.result.current.transcript).toEqual([]);
+  });
+
+  it('unmounting during the pause is safe', async () => {
+    const hook = await readyWithFakeTimers();
+    await answerAs(hook, 'cuisine', 'a');
+    await hook.unmount();
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(api.trackFlowEvent.mock.calls.filter((c) => c[1] === 'question_seen')).toHaveLength(1);
   });
 });

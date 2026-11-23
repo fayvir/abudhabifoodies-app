@@ -9,6 +9,7 @@ import { __resetHistoryForTests, getHistoryState, recordPick } from '../../histo
 import { opt, pick, question, restaurant, snapshot } from '../../testing/builders';
 import Favourites from '../../../app/(tabs)/favourites';
 import Discover from '../../../app/(tabs)/index';
+import { __resetSnapshotForTests } from '../../snapshot/useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -24,6 +25,7 @@ async function open(ids: string[] | null, been: string[] | null = null) {
 }
 
 beforeEach(async () => {
+  __resetSnapshotForTests();
   jest.clearAllMocks();
   await AsyncStorage.clear();
   __resetFavouritesForTests();

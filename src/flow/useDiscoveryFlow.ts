@@ -10,6 +10,7 @@ import type {
   Selections,
 } from '../api/types';
 import { useSnapshot } from '../snapshot/useSnapshot';
+import { FLOW_PACING } from './pacing';
 import {
   applyAvailability,
   chevronOptionIds,
@@ -34,7 +35,8 @@ export type FlowOutcome =
   | { kind: 'no_match'; note: string }
   | { kind: 'error'; message: string };
 
-export type FlowStatus = 'loading' | 'load_error' | 'ready' | 'done';
+/** `thinking`: the typing bubble between an answer and what comes next. */
+export type FlowStatus = 'loading' | 'load_error' | 'ready' | 'thinking' | 'done';
 
 export interface DiscoveryFlowState {
   status: FlowStatus;
@@ -74,9 +76,10 @@ function fireAndForget(send: () => Promise<void>): void {
 }
 
 /**
- * The guided flow, answered entirely from the downloaded snapshot: every tap
- * moves on at once, with no network wait. Tracking events and the finished
- * search are reported in the background.
+ * The guided flow, answered entirely from the downloaded snapshot, with no
+ * network wait. Each answer shows a short typing pause (FLOW_PACING) so it
+ * reads as a chat. Tracking events and the finished search are reported in
+ * the background.
  */
 export function useDiscoveryFlow(): DiscoveryFlowState {
   const { snapshot, status: snapshotStatus, retry } = useSnapshot();
@@ -85,6 +88,32 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [outcome, setOutcome] = useState<FlowOutcome | null>(null);
   const [badSnapshot, setBadSnapshot] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelPause = useCallback(() => {
+    if (pauseTimer.current) clearTimeout(pauseTimer.current);
+    pauseTimer.current = null;
+    setThinking(false);
+  }, []);
+
+  /** Runs `then` after `ms` behind the typing bubble, or at once for 0. */
+  const pause = useCallback((ms: number, then: () => void) => {
+    if (ms <= 0) {
+      then();
+      return;
+    }
+    setThinking(true);
+    pauseTimer.current = setTimeout(() => {
+      pauseTimer.current = null;
+      setThinking(false);
+      then();
+    }, ms);
+  }, []);
+
+  useEffect(() => () => {
+    if (pauseTimer.current) clearTimeout(pauseTimer.current);
+  }, []);
 
   const runRef = useRef<Run | null>(null);
   const latestSnapshot = useRef<DiscoverySnapshot | null>(null);
@@ -105,6 +134,7 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
   const seed = useCallback(
     (snap: DiscoverySnapshot, sessionId?: string): boolean => {
       runRef.current = null;
+      cancelPause();
       try {
         const start = findStartQuestion(snap.questions);
         if (!start) return false;
@@ -131,7 +161,7 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
         return false;
       }
     },
-    [show],
+    [show, cancelPause],
   );
 
   // First snapshot starts the flow. A newer one replaces it only while nothing
@@ -166,27 +196,44 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
   const advance = useCallback(
     (run: Run, from: Q, chosen: DiscoveryOption | null, answerLabel: string) => {
       run.answered = true;
+      // No question is answerable during the pause: taps on the old chips are ignored.
+      run.current = null;
+      setQuestion(null);
+      setOptions([]);
       setTranscript((t) => [...t, { questionKey: from.key, questionLabel: from.label, answerLabel }]);
+      const fail = () => {
+        // Malformed data must never leave the user stuck: end in the error outcome.
+        setOutcome({ kind: 'error', message: GENERIC_ERROR });
+      };
+      let next: Q | null;
       try {
         if (chosen) run.selections = selectOption(run.selections, from, chosen);
-        const next = findNextQuestion(run.snapshot.questions, from, chosen, run.asked);
-        if (!next) {
-          finish(run);
-          return;
-        }
-        run.asked.add(next.id);
-        run.current = next;
-        fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', next.key));
-        show(next, run);
+        next = findNextQuestion(run.snapshot.questions, from, chosen, run.asked);
       } catch {
-        // Malformed data must never leave the user stuck: end in the error outcome.
-        run.current = null;
-        setQuestion(null);
-        setOptions([]);
-        setOutcome({ kind: 'error', message: GENERIC_ERROR });
+        fail();
+        return;
       }
+      const step = next;
+      pause(step ? FLOW_PACING.questionMs : FLOW_PACING.resultMs, () => {
+        if (runRef.current !== run) return; // restarted during the pause
+        try {
+          if (!step) {
+            finish(run);
+            return;
+          }
+          run.asked.add(step.id);
+          run.current = step;
+          show(step, run);
+          fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', step.key));
+        } catch {
+          run.current = null;
+          setQuestion(null);
+          setOptions([]);
+          fail();
+        }
+      });
     },
-    [finish, show],
+    [finish, show, pause],
   );
 
   const answer = useCallback(
@@ -218,6 +265,7 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
 
   let status: FlowStatus;
   if (outcome) status = 'done';
+  else if (thinking) status = 'thinking';
   else if (question) status = 'ready';
   else if (snapshotStatus === 'error' || badSnapshot) status = 'load_error';
   else status = 'loading';

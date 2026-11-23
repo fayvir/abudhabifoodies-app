@@ -6,7 +6,7 @@ import * as client from '../../api/client';
 import type { DiscoverySnapshot } from '../../api/types';
 import { question, snapshot } from '../../testing/builders';
 import { loadStoredSnapshot, SNAPSHOT_STORAGE_KEY } from '../store';
-import { REFRESH_AFTER_MS, useSnapshot } from '../useSnapshot';
+import { __resetSnapshotForTests, REFRESH_AFTER_MS, useSnapshot } from '../useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -18,14 +18,14 @@ const one = snapshot([question('q1', 'cuisine', [])], { generated_at: 'one' });
 const two = snapshot([question('q1', 'cuisine', [])], { generated_at: 'two' });
 
 let onAppState: (state: AppStateStatus) => void = () => undefined;
-const remove = jest.fn();
 
 beforeEach(async () => {
+  __resetSnapshotForTests();
   jest.clearAllMocks();
   api.getSnapshot.mockReset();
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     onAppState = handler as (state: AppStateStatus) => void;
-    return { remove } as never;
+    return { remove: jest.fn() } as never;
   });
   await AsyncStorage.clear();
 });
@@ -119,11 +119,12 @@ describe('useSnapshot', () => {
     await waitFor(() => expect(result.current.snapshot?.generated_at).toBe('two'));
   });
 
-  it('stops listening when unmounted', async () => {
+  it('is one download shared by every screen that reads it (splash and Discover)', async () => {
     api.getSnapshot.mockResolvedValue({ ok: true, data: one });
-    const hook = await renderHook(() => useSnapshot());
-    await waitFor(() => expect(hook.result.current.status).toBe('ready'));
-    await hook.unmount();
-    expect(remove).toHaveBeenCalled();
+    const a = await renderHook(() => useSnapshot());
+    const b = await renderHook(() => useSnapshot());
+    await waitFor(() => expect(a.result.current.status).toBe('ready'));
+    expect(b.result.current.snapshot).toBe(one);
+    expect(api.getSnapshot).toHaveBeenCalledTimes(1);
   });
 });

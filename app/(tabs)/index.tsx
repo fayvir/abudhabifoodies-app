@@ -15,6 +15,7 @@ import {
 import { AppHeader } from '../../src/components/AppHeader';
 import { Chip } from '../../src/components/Chip';
 import { ResultCard } from '../../src/components/ResultCard';
+import { TypingDots } from '../../src/components/TypingDots';
 import { SKIP_LABEL } from '../../src/flow/engine';
 import { useDiscoveryFlow } from '../../src/flow/useDiscoveryFlow';
 import { recordPick } from '../../src/history/store';
@@ -133,6 +134,16 @@ export default function Discover() {
           </View>
         ) : null}
 
+        {status === 'thinking' ? (
+          <View
+            testID="flow-typing"
+            accessibilityLabel="Typing"
+            style={[styles.bot, styles.typing, { backgroundColor: theme.bgSecondary, borderColor: theme.borderStrong }]}
+          >
+            <TypingDots />
+          </View>
+        ) : null}
+
         {status === 'loading' ? (
           <View testID="flow-loading" style={styles.center}>
             <ActivityIndicator color={theme.primary} />
@@ -179,6 +190,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   bubbleText: { fontSize: 15, fontWeight: '600' },
+  typing: { paddingVertical: 14, paddingHorizontal: 16 },
   user: {
     alignSelf: 'flex-end',
     maxWidth: '75%',

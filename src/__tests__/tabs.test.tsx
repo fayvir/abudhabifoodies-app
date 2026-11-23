@@ -8,6 +8,7 @@ import Favourites from '../../app/(tabs)/favourites';
 import Discover from '../../app/(tabs)/index';
 import Settings from '../../app/(tabs)/settings';
 import { opt, question, snapshot } from '../testing/builders';
+import { __resetSnapshotForTests } from '../snapshot/useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -28,6 +29,7 @@ function renderApp(initialUrl = '/') {
 }
 
 beforeEach(async () => {
+  __resetSnapshotForTests();
   await AsyncStorage.clear(); // a snapshot stored by one test must not start the next
   jest.mocked(client.getSnapshot).mockReturnValue(new Promise(() => undefined));
   jest.mocked(client.getRestaurantsByIds).mockResolvedValue({ ok: true, data: [] });
