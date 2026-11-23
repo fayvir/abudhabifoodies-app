@@ -9,6 +9,11 @@ import { applyThemePreference, loadThemePreference } from '../src/settings/theme
 
 // Hold the native splash until BrandSplash has drawn (it hides it on first layout).
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+// Backstop: if the app never gets as far as drawing BrandSplash (a crash), don't leave
+// the native splash up forever.
+setTimeout(() => {
+  void SplashScreen.hideAsync().catch(() => undefined);
+}, 10_000);
 
 export default function RootLayout() {
   // Apply the saved light/dark/system choice once at start. Until the (fast)

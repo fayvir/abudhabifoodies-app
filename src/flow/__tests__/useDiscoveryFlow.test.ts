@@ -328,6 +328,21 @@ describe('useDiscoveryFlow resolving', () => {
     expect(api.reportCompletion).not.toHaveBeenCalled();
   });
 
+  it('malformed result data ends in the error outcome instead of a stuck screen', async () => {
+    api.getSnapshot.mockResolvedValue({
+      ok: true,
+      data: fixture(qs, {
+        results: { [`budget=budget_2&cuisine=a&${VIBE_KEY}=trendy`]: { editorial: 'x', sponsored: [] } as never },
+      }),
+    });
+    const hook = await ready();
+    await answerAs(hook, 'cuisine', 'a');
+    await answerAs(hook, 'budget', 'budget_2');
+    await answerAs(hook, VIBE_KEY, 'trendy');
+    expect(hook.result.current.status).toBe('done');
+    expect(hook.result.current.outcome).toEqual({ kind: 'error', message: 'Something went wrong — please try again.' });
+  });
+
   it('a report that fails or throws never affects the result', async () => {
     api.reportCompletion.mockImplementation(() => {
       throw new Error('boom');

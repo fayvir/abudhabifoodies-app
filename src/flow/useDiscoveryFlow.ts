@@ -216,11 +216,11 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
       const step = next;
       pause(step ? FLOW_PACING.questionMs : FLOW_PACING.resultMs, () => {
         if (runRef.current !== run) return; // restarted during the pause
-        if (!step) {
-          finish(run);
-          return;
-        }
         try {
+          if (!step) {
+            finish(run);
+            return;
+          }
           run.asked.add(step.id);
           run.current = step;
           show(step, run);
