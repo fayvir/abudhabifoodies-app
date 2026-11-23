@@ -1,8 +1,15 @@
-/** Pure discovery-flow logic ported from the website's DiscoveryFlow.tsx. No React, no fetch. */
+/**
+ * Pure discovery-flow logic ported from the website (src/lib/discovery/flow.ts
+ * and DiscoveryFlow.tsx). No React, no fetch. The site walks the same tree to
+ * build the snapshot, so findStartQuestion/findNextQuestion and the snapshot
+ * keys must stay identical to flow.ts.
+ */
 import type {
   Availability,
   DiscoveryOption,
   DiscoveryQuestionWithOptions as Q,
+  DiscoverySnapshot,
+  ResultCard,
   Selections,
 } from '../api/types';
 
@@ -16,7 +23,7 @@ function weekdayIndex(value: string): number {
   return WEEKDAYS.findIndex((d) => v === d || v.startsWith(d.slice(0, 3)));
 }
 
-/** DiscoveryFlow.tsx:325-336 */
+/** flow.ts findStartQuestion */
 export function findStartQuestion(questions: Q[]): Q | null {
   if (questions.length === 0) return null;
   const targeted = new Set<string>();
@@ -40,7 +47,7 @@ export function sortOptionsForQuestion(question: Pick<Q, 'key'>, options: Discov
   return [...options].sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** DiscoveryFlow.tsx:423-453 */
+/** flow.ts findNextQuestion */
 export function findNextQuestion(
   questions: Q[],
   from: Q,
@@ -127,4 +134,51 @@ export function buildQueryLabel(questions: Q[], selections: Selections): string 
     .filter(([, value]) => value)
     .map(([key, value]) => labels.get(`${key}:${value}`) ?? value)
     .join(', ');
+}
+
+/** flow.ts selectionsKey: keys sorted, `key=value` joined by `&`, both URI-encoded. Must match the site. */
+export function selectionsKey(selections: Selections): string {
+  return Object.keys(selections)
+    .filter((k) => selections[k])
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(selections[k])}`)
+    .join('&');
+}
+
+/** flow.ts availabilityKey. Must match the site. */
+export function availabilityKey(questionKey: string, selections: Selections): string {
+  return `${encodeURIComponent(questionKey)}|${selectionsKey(selections)}`;
+}
+
+/** Which options of `question` the snapshot says to show; missing means show all (fail open). */
+export function snapshotAvailability(snapshot: DiscoverySnapshot, question: Q, selections: Selections): Availability {
+  if (!isGatedQuestion(question)) return { gated: false };
+  const available = snapshot.availability[availabilityKey(question.key, selections)];
+  return Array.isArray(available) ? { gated: true, available } : { gated: false };
+}
+
+export type SnapshotResult =
+  | { kind: 'pick'; picks: ResultCard[]; pickIds: string[] }
+  | { kind: 'no_match'; note: string }
+  /** The answers aren't in the snapshot (it doesn't match this flow). */
+  | { kind: 'missing' };
+
+/**
+ * resolve.ts resolveTier1, on the phone: one random editorial card, then one
+ * random live sponsored card if any. The site already chose the candidates.
+ */
+export function resolveFromSnapshot(
+  snapshot: DiscoverySnapshot,
+  selections: Selections,
+  random: () => number = Math.random,
+): SnapshotResult {
+  const entry = snapshot.results[selectionsKey(selections)];
+  if (!entry) return { kind: 'missing' };
+  const choose = (ids: string[] | undefined): string | null => {
+    const usable = (ids ?? []).filter((id) => snapshot.cards[id]);
+    return usable.length > 0 ? usable[Math.floor(random() * usable.length)] : null;
+  };
+  const pickIds = [choose(entry.editorial), choose(entry.sponsored)].filter((id): id is string => id !== null);
+  if (pickIds.length === 0) return { kind: 'no_match', note: snapshot.no_match_note };
+  return { kind: 'pick', picks: pickIds.map((id) => snapshot.cards[id]), pickIds };
 }

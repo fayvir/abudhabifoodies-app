@@ -1,18 +1,19 @@
 /**
  * Discover screen, driven end to end through the REAL useDiscoveryFlow hook and
  * engine, with only the network client mocked (more honest than mocking the
- * hook: it proves tapping a chip actually reaches resolve). ResultCard is
+ * hook: it proves tapping a chip actually reaches the result). ResultCard is
  * mocked so this file does not depend on that component.
  */
-import { ScrollView, StyleSheet } from 'react-native';
+import { AppState, ScrollView, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 
 import { randomUUID } from 'expo-crypto';
 
 import * as client from '../../api/client';
-import type { DiscoveryQuestionWithOptions as Q } from '../../api/types';
+import type { DiscoveryQuestionWithOptions as Q, DiscoverySnapshot } from '../../api/types';
 import { __resetHistoryForTests, getHistoryState } from '../../history/store';
-import { opt, pick, question } from '../../testing/builders';
+import { opt, pick, question, snapshot } from '../../testing/builders';
 import Discover from '../../../app/(tabs)/index';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -45,17 +46,31 @@ function graph(): Q[] {
   ];
 }
 
-beforeEach(() => {
-  jest.resetAllMocks();
+/** Every end state of graph() has the one pick, unless a test passes its own results. */
+function fixture(results?: DiscoverySnapshot['results']): DiscoverySnapshot {
+  const hit = { editorial: ['p-1'], sponsored: [] };
+  return snapshot(graph(), {
+    results: results ?? {
+      'budget=budget_1&cuisine=arabic': hit,
+      'budget=budget_2&cuisine=arabic': hit,
+      'cuisine=arabic': hit,
+    },
+    cards: { 'p-1': pick() },
+    no_match_note: SERVER_NO_MATCH,
+  });
+}
+
+beforeEach(async () => {
+  // Not resetAllMocks: that also wipes the AsyncStorage and AppState mocks.
+  jest.clearAllMocks();
+  for (const fn of [api.getSnapshot, api.trackFlowEvent, api.reportCompletion]) fn.mockReset();
+  jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
+  await AsyncStorage.clear();
   __resetHistoryForTests();
   jest.mocked(randomUUID).mockReturnValue('sid-1');
-  api.getQuestions.mockResolvedValue({ ok: true, data: graph() });
-  api.getAvailability.mockResolvedValue({ gated: false });
+  api.getSnapshot.mockResolvedValue({ ok: true, data: fixture() });
   api.trackFlowEvent.mockResolvedValue(undefined);
-  api.resolveDiscovery.mockResolvedValue({
-    ok: true,
-    result: { tier: 1, source: 'curated', picks: [pick()], note: null },
-  });
+  api.reportCompletion.mockResolvedValue(undefined);
 });
 
 async function renderReady() {
@@ -75,19 +90,19 @@ async function playThrough(view: Awaited<ReturnType<typeof renderReady>>) {
 }
 
 describe('Discover screen: loading', () => {
-  it('shows a loading indicator until the questions arrive', async () => {
-    api.getQuestions.mockReturnValue(new Promise(() => undefined));
+  it('shows a loading indicator until the guide arrives', async () => {
+    api.getSnapshot.mockReturnValue(new Promise(() => undefined));
     const view = await render(<Discover />);
     expect(view.getByTestId('flow-loading')).toBeTruthy();
   });
 
   it('shows the load error with a Try again button that reloads', async () => {
-    api.getQuestions.mockResolvedValueOnce({ ok: false, message: 'offline' });
+    api.getSnapshot.mockResolvedValueOnce({ ok: false, message: 'offline' });
     const view = await render(<Discover />);
     await waitFor(() => expect(view.getByText('Something went wrong loading the guide.')).toBeTruthy());
     await fireEvent.press(view.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(view.getByText('What are you in the mood for?')).toBeTruthy());
-    expect(api.getQuestions).toHaveBeenCalledTimes(2);
+    expect(api.getSnapshot).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -126,39 +141,29 @@ describe('Discover screen: intro and questions', () => {
     await waitFor(() => expect(view.getByRole('button', { name: 'Skip' })).toBeTruthy());
     await tap(view, 'Skip');
     await waitFor(() => expect(view.getByText('No preference')).toBeTruthy());
-    expect(api.resolveDiscovery).toHaveBeenCalledWith({ cuisine: 'arabic' }, 'sid-1');
+    expect(api.reportCompletion).toHaveBeenCalledWith({ cuisine: 'arabic' }, 'sid-1', ['p-1']);
   });
 });
 
 describe('Discover screen: results', () => {
-  it('resolves with the tapped selections and renders the pick through ResultCard', async () => {
+  it('renders the pick for the tapped selections through ResultCard and reports the search', async () => {
     const view = await renderReady();
     await playThrough(view);
     await waitFor(() => expect(view.getByText('card:Operation Falafel')).toBeTruthy());
-    expect(api.resolveDiscovery).toHaveBeenCalledWith({ cuisine: 'arabic', budget: 'budget_2' }, 'sid-1');
+    expect(api.reportCompletion).toHaveBeenCalledWith({ cuisine: 'arabic', budget: 'budget_2' }, 'sid-1', ['p-1']);
     expect(view.getByText("Here's what we'd recommend:")).toBeTruthy();
   });
 
   it("shows the server's no-match note, not the website's own copy", async () => {
-    api.resolveDiscovery.mockResolvedValue({
-      ok: true,
-      result: { tier: 1, source: 'none', picks: [], note: SERVER_NO_MATCH },
-    });
+    api.getSnapshot.mockResolvedValue({ ok: true, data: fixture({ 'budget=budget_2&cuisine=arabic': { editorial: [], sponsored: [] } }) });
     const view = await renderReady();
     await playThrough(view);
     await waitFor(() => expect(view.getByText(SERVER_NO_MATCH)).toBeTruthy());
     expect(view.queryByText(WEB_SOURCE_INTRO_NONE)).toBeNull();
   });
 
-  it('shows the rate-limit message', async () => {
-    api.resolveDiscovery.mockResolvedValue({ ok: false, reason: 'rate_limited', message: 'Slow down a bit.' });
-    const view = await renderReady();
-    await playThrough(view);
-    await waitFor(() => expect(view.getByText('Slow down a bit.')).toBeTruthy());
-  });
-
-  it('shows the generic error message', async () => {
-    api.resolveDiscovery.mockResolvedValue({ ok: false, reason: 'error', message: 'Something went wrong — please try again.' });
+  it('shows the generic error message when the answers are not in the guide', async () => {
+    api.getSnapshot.mockResolvedValue({ ok: true, data: fixture({}) });
     const view = await renderReady();
     await playThrough(view);
     await waitFor(() => expect(view.getByText('Something went wrong — please try again.')).toBeTruthy());
@@ -172,7 +177,7 @@ describe('Discover screen: results', () => {
     await waitFor(() => expect(view.getByText(INTRO)).toBeTruthy());
     expect(view.getByRole('button', { name: 'Arabic' })).toBeTruthy();
     expect(view.queryByText('card:Operation Falafel')).toBeNull();
-    expect(api.getQuestions).toHaveBeenCalledTimes(1);
+    expect(api.getSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('has a "New search" button under the result card, not on the intro', async () => {
@@ -195,7 +200,7 @@ describe('Discover screen: results', () => {
     expect(view.queryByText('card:Operation Falafel')).toBeNull();
     expect(view.queryByRole('button', { name: 'Start a new search' })).toBeNull();
     expect(instance.scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
-    expect(api.getQuestions).toHaveBeenCalledTimes(1);
+    expect(api.getSnapshot).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -232,10 +237,10 @@ describe('Discover screen: search history', () => {
   });
 
   it('records nothing for a no-match result', async () => {
-    api.resolveDiscovery.mockResolvedValue({ ok: true, result: { tier: 1, source: 'none', picks: [], note: null } });
+    api.getSnapshot.mockResolvedValue({ ok: true, data: fixture({ 'budget=budget_2&cuisine=arabic': { editorial: [], sponsored: [] } }) });
     const view = await renderReady();
     await playThrough(view);
-    await waitFor(() => expect(view.getByText(/haven't covered this combination/)).toBeTruthy());
+    await waitFor(() => expect(view.getByText(SERVER_NO_MATCH)).toBeTruthy());
     expect(getHistoryState().entries).toEqual([]);
   });
 });
@@ -280,7 +285,7 @@ describe('Discover screen: header New search button', () => {
     await waitFor(() => expect(view.getByText(INTRO)).toBeTruthy());
     expect(instance.scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
     expect(view.queryByRole('button', { name: 'New search' })).toBeNull();
-    expect(api.getQuestions).toHaveBeenCalledTimes(1);
+    expect(api.getSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('stays available next to a result and scrolls back to the top when used there', async () => {

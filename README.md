@@ -7,6 +7,16 @@ It calls the site's public API only; there are no keys or secrets in this repo.
 
 Expo SDK 58, expo-router, TypeScript.
 
+## How the guide gets its answers
+
+At launch the app downloads `/api/discovery/snapshot`: every question path,
+already answered by the site from the Coverage Matrix. It keeps the last copy
+on the phone, so a relaunch starts at once, and downloads a fresh one on every
+launch and when the app comes back after more than an hour. No tap waits on the
+network. After showing a result the app reports it to `/api/discovery/complete`
+(only with Settings > Privacy on). The snapshot keys in `src/flow/engine.ts`
+must match the site's `src/lib/discovery/flow.ts`.
+
 ## Run the tests
 
 ```bash
