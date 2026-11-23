@@ -46,7 +46,9 @@ app (iOS).
   Upload the `.aab` in Play Console by hand.
 - **iOS screenshots** (`.github/workflows/ios-screenshots.yml`): App Store
   screenshots from the real app on a 6.9" iPhone simulator, driven by Maestro
-  (`.maestro/screenshots.yaml`), uploaded as a run artifact.
+  (`.maestro/screenshots.yaml`), uploaded as a run artifact with two folders:
+  `app-store/6.9in` (1320x2868) and `app-store/6.3in` (1206x2622, the iPhone
+  "medium display" slot App Store Connect asks for).
 
 ## License
 

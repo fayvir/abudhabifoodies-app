@@ -1,8 +1,9 @@
 name: iOS screenshots
 
-# App Store screenshots from the real app on a 6.9" iPhone simulator (the one size
-# App Store Connect requires for an iPhone-only app). No signing, no secrets, no
-# upload: the PNGs come back as a run artifact. 
+# App Store screenshots from the real app on a 6.9" iPhone simulator, plus the
+# same shots at 1206x2622 for App Store Connect's iPhone "medium display"
+# (6.1"/6.3") slot, which is the one it asked for on the first submission.
+# No signing, no secrets, no upload: the PNGs come back as a run artifact.
 # Manual only (Actions > iOS screenshots > Run workflow): each run is ~30 macOS
 # minutes, which bill at about 10x Linux minutes.
 on:
@@ -85,13 +86,28 @@ jobs:
               --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
           done
           ls -la screenshots
-          sips -g pixelWidth -g pixelHeight screenshots/*.png
+          sips -g pixelWidth -g pixelHeight screenshots/*.png || true
+
+      # App Store Connect asks for the iPhone "medium display" slot (6.1"/6.3",
+      # 1206x2622), not only 6.9". Same shots, scaled to the height and trimmed
+      # one pixel of width, so nothing is stretched (1320x2868 -> 1207x2622 -> 1206x2622).
+      - name: Collect both App Store sizes
+        run: |
+          mkdir -p app-store/6.9in app-store/6.3in
+          find ~/.maestro/tests screenshots -name '0*.png' -exec cp {} app-store/6.9in/ \;
+          ls app-store/6.9in/*.png >/dev/null   # fail if Maestro produced nothing
+          for f in app-store/6.9in/*.png; do
+            out="app-store/6.3in/$(basename "$f")"
+            sips --resampleHeight 2622 "$f" --out "$out" >/dev/null
+            sips --cropToHeightWidth 2622 1206 "$out" >/dev/null
+          done
+          sips -g pixelWidth -g pixelHeight app-store/*/*.png
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-store-screenshots
           path: |
-            screenshots/
+            app-store/
             ~/.maestro/tests/
           if-no-files-found: warn
