@@ -27,28 +27,30 @@ export function useSnapshot(): SnapshotState {
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [status, setStatus] = useState<SnapshotStatus>('loading');
   const fetchedAt = useRef(0);
-  const inFlight = useRef(false);
+  const inFlight = useRef<Promise<void> | null>(null);
   const hasSnapshot = useRef(false);
   const mounted = useRef(true);
 
-  const refresh = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try {
-      const res = await getSnapshot();
-      if (!mounted.current) return;
-      if (res.ok) {
-        fetchedAt.current = Date.now();
-        hasSnapshot.current = true;
-        setSnapshot(res.data);
-        setStatus('ready');
-        void saveSnapshot({ fetchedAt: fetchedAt.current, snapshot: res.data });
-      } else if (!hasSnapshot.current) {
-        setStatus('error');
+  /** One download at a time; a second call shares the one in flight. */
+  const refresh = useCallback((): Promise<void> => {
+    inFlight.current ??= (async () => {
+      try {
+        const res = await getSnapshot();
+        if (!mounted.current) return;
+        if (res.ok) {
+          fetchedAt.current = Date.now();
+          hasSnapshot.current = true;
+          setSnapshot(res.data);
+          setStatus('ready');
+          void saveSnapshot({ fetchedAt: fetchedAt.current, snapshot: res.data });
+        } else if (!hasSnapshot.current) {
+          setStatus('error');
+        }
+      } finally {
+        inFlight.current = null;
       }
-    } finally {
-      inFlight.current = false;
-    }
+    })();
+    return inFlight.current;
   }, []);
 
   useEffect(() => {

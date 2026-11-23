@@ -136,6 +136,15 @@ describe('useDiscoveryFlow loading', () => {
     expect(api.getSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it('is a load error, not a crash, when the snapshot data is malformed', async () => {
+    const broken = question('q-x', 'cuisine', []);
+    (broken as unknown as { options: unknown }).options = null;
+    api.getSnapshot.mockResolvedValue({ ok: true, data: fixture([broken]) });
+    const hook = await renderHook(() => useDiscoveryFlow());
+    await waitFor(() => expect(hook.result.current.status).toBe('load_error'));
+    expect(api.trackFlowEvent).not.toHaveBeenCalled();
+  });
+
   it('is a load error when the snapshot has no questions', async () => {
     api.getSnapshot.mockResolvedValue({ ok: true, data: fixture([]) });
     const hook = await renderHook(() => useDiscoveryFlow());

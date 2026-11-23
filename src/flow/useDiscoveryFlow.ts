@@ -98,31 +98,38 @@ export function useDiscoveryFlow(): DiscoveryFlowState {
     setOptions(visible);
   }, []);
 
-  /** Starts a run. `sessionId` given = same run on a newer snapshot (no new tracking). */
+  /**
+   * Starts a run. `sessionId` given = same run on a newer snapshot (no new tracking).
+   * False when the snapshot has no usable start question; malformed data never throws.
+   */
   const seed = useCallback(
     (snap: DiscoverySnapshot, sessionId?: string): boolean => {
-      const start = findStartQuestion(snap.questions);
-      if (!start) {
-        runRef.current = null;
+      runRef.current = null;
+      try {
+        const start = findStartQuestion(snap.questions);
+        if (!start) return false;
+        const run: Run = {
+          sessionId: sessionId ?? randomUUID(),
+          snapshot: snap,
+          selections: {},
+          asked: new Set([start.id]),
+          current: start,
+          answered: false,
+        };
+        show(start, run);
+        runRef.current = run;
+        if (!sessionId) {
+          fireAndForget(() => trackFlowEvent(run.sessionId, 'started', start.key));
+          fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', start.key));
+        }
+        setTranscript([]);
+        setOutcome(null);
+        return true;
+      } catch {
+        setQuestion(null);
+        setOptions([]);
         return false;
       }
-      const run: Run = {
-        sessionId: sessionId ?? randomUUID(),
-        snapshot: snap,
-        selections: {},
-        asked: new Set([start.id]),
-        current: start,
-        answered: false,
-      };
-      runRef.current = run;
-      if (!sessionId) {
-        fireAndForget(() => trackFlowEvent(run.sessionId, 'started', start.key));
-        fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', start.key));
-      }
-      setTranscript([]);
-      setOutcome(null);
-      show(start, run);
-      return true;
     },
     [show],
   );

@@ -74,6 +74,20 @@ describe('useSnapshot', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
   });
 
+  it('retry while a download is still running shares it instead of flashing the error', async () => {
+    api.getSnapshot.mockResolvedValueOnce({ ok: false, message: 'offline' });
+    const { result } = await renderHook(() => useSnapshot());
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    let release: (v: { ok: true; data: DiscoverySnapshot }) => void = () => undefined;
+    api.getSnapshot.mockReturnValueOnce(new Promise((r) => { release = r; }));
+    await act(async () => result.current.retry());
+    await act(async () => result.current.retry());
+    expect(result.current.status).toBe('loading');
+    expect(api.getSnapshot).toHaveBeenCalledTimes(2);
+    await act(async () => release({ ok: true, data: one }));
+    expect(result.current.status).toBe('ready');
+  });
+
   it('ignores a stored copy from another snapshot version', async () => {
     await store({ ...one, version: 99 }, Date.now());
     api.getSnapshot.mockReturnValue(new Promise(() => undefined));
