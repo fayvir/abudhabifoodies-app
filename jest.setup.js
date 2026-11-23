@@ -8,3 +8,8 @@ jest.mock('@expo/vector-icons/Ionicons', () => {
   }
   return { __esModule: true, default: Ionicons };
 });
+
+// No chat pauses in tests unless a test sets them (src/flow/pacing.ts).
+const { FLOW_PACING } = require('./src/flow/pacing');
+FLOW_PACING.questionMs = 0;
+FLOW_PACING.resultMs = 0;

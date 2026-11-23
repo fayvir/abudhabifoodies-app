@@ -15,6 +15,7 @@ import type { DiscoveryQuestionWithOptions as Q, DiscoverySnapshot } from '../..
 import { __resetHistoryForTests, getHistoryState } from '../../history/store';
 import { opt, pick, question, snapshot } from '../../testing/builders';
 import Discover from '../../../app/(tabs)/index';
+import { __resetSnapshotForTests } from '../../snapshot/useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -61,6 +62,7 @@ function fixture(results?: DiscoverySnapshot['results']): DiscoverySnapshot {
 }
 
 beforeEach(async () => {
+  __resetSnapshotForTests();
   // Not resetAllMocks: that also wipes the AsyncStorage and AppState mocks.
   jest.clearAllMocks();
   for (const fn of [api.getSnapshot, api.trackFlowEvent, api.reportCompletion]) fn.mockReset();

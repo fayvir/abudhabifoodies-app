@@ -1,9 +1,14 @@
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
+import { BrandSplash } from '../src/components/BrandSplash';
 import { loadAnalyticsPreference } from '../src/settings/analyticsPreference';
 import { applyThemePreference, loadThemePreference } from '../src/settings/themePreference';
+
+// Hold the native splash until BrandSplash has drawn (it hides it on first layout).
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 export default function RootLayout() {
   // Apply the saved light/dark/system choice once at start. Until the (fast)
@@ -28,6 +33,7 @@ export default function RootLayout() {
     <>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }} />
+      <BrandSplash />
     </>
   );
 }
