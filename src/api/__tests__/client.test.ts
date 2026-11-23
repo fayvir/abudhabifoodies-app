@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   BASE_URL,
-  getAvailability,
-  getQuestions,
   getRestaurantsByIds,
-  resolveDiscovery,
+  getSnapshot,
+  reportCompletion,
+  SNAPSHOT_VERSION,
   trackFlowEvent,
 } from '../client';
 import questionsFixture from '../__fixtures__/questions.json';
@@ -21,8 +21,20 @@ afterEach(async () => {
   await AsyncStorage.clear();
 });
 
-const RATE_LIMIT_NOTE = "You're going a bit fast — give it a few seconds and try again.";
-const GENERIC_NOTE = 'Something went wrong — please try again.';
+const LOAD_NOTE = 'Something went wrong loading the guide.';
+
+function snapshotBody(overrides: Record<string, unknown> = {}) {
+  return {
+    version: SNAPSHOT_VERSION,
+    generated_at: '2026-11-23T00:00:00Z',
+    questions: questionsFixture.questions,
+    availability: {},
+    results: {},
+    cards: {},
+    no_match_note: 'Nothing yet.',
+    ...overrides,
+  };
+}
 
 describe('base URL and headers', () => {
   it('is exactly the www host (the apex 308-redirects)', () => {
@@ -30,9 +42,8 @@ describe('base URL and headers', () => {
   });
 
   it.each([
-    ['getQuestions', () => getQuestions()],
-    ['getAvailability', () => getAvailability('budget', {})],
-    ['resolveDiscovery', () => resolveDiscovery({ cuisine: 'arabic' }, 's1')],
+    ['getSnapshot', () => getSnapshot()],
+    ['reportCompletion', () => reportCompletion({ cuisine: 'arabic' }, 's1', [])],
     ['trackFlowEvent', () => trackFlowEvent('s1', 'started', 'cuisine')],
     ['getRestaurantsByIds', () => getRestaurantsByIds(['a'])],
   ])('%s sends a Mobile User-Agent to the www host', async (_name, call) => {
@@ -46,188 +57,81 @@ describe('base URL and headers', () => {
 
   it('sends JSON content-type on POST requests', async () => {
     const fetchMock = installFetch();
-    await resolveDiscovery({ cuisine: 'arabic' }, 's1');
+    await reportCompletion({ cuisine: 'arabic' }, 's1', []);
     expect(callAt(fetchMock).headers['content-type']).toContain('application/json');
   });
 });
 
-describe('getQuestions', () => {
-  it('GETs /api/discovery/questions and returns the questions array', async () => {
-    const fetchMock = installFetch(async () => fakeResponse({ body: questionsFixture }));
-    const result = await getQuestions();
+describe('getSnapshot', () => {
+  it('GETs /api/discovery/snapshot and returns the snapshot', async () => {
+    const body = snapshotBody();
+    const fetchMock = installFetch(async () => fakeResponse({ body }));
+    const result = await getSnapshot();
     const req = callAt(fetchMock);
     expect(req.method).toBe('GET');
-    expect(req.url.pathname).toBe('/api/discovery/questions');
-    expect(result).toEqual({ ok: true, data: questionsFixture.questions });
+    expect(req.url.pathname).toBe('/api/discovery/snapshot');
+    expect(result).toEqual({ ok: true, data: body });
   });
 
-  it('returns a typed failure (not a throw) on a network error', async () => {
+  it.each([
+    ['a 500', fakeResponse({ status: 500, body: { error: 'x' } })],
+    ['another snapshot version', fakeResponse({ body: snapshotBody({ version: SNAPSHOT_VERSION + 1 }) })],
+    ['questions missing', fakeResponse({ body: snapshotBody({ questions: undefined }) })],
+    ['results missing', fakeResponse({ body: snapshotBody({ results: null }) })],
+    ['cards missing', fakeResponse({ body: snapshotBody({ cards: undefined }) })],
+    ['availability missing', fakeResponse({ body: snapshotBody({ availability: undefined }) })],
+    ['malformed JSON', fakeResponse({ badJson: true })],
+  ])('returns a typed failure on %s', async (_name, response) => {
+    installFetch(async () => response);
+    await expect(getSnapshot()).resolves.toEqual({ ok: false, message: LOAD_NOTE });
+  });
+
+  it('returns a typed failure on a network error', async () => {
     installFetch(async () => {
       throw new TypeError('Network request failed');
     });
-    await expect(getQuestions()).resolves.toMatchObject({ ok: false });
+    await expect(getSnapshot()).resolves.toEqual({ ok: false, message: LOAD_NOTE });
   });
 
-  it('returns a typed failure on a 500', async () => {
-    installFetch(async () => fakeResponse({ status: 500, body: { error: 'Could not load questions', code: 'DB_ERROR' } }));
-    await expect(getQuestions()).resolves.toMatchObject({ ok: false });
-  });
-
-  it('returns a typed failure when the body has no questions array', async () => {
-    installFetch(async () => fakeResponse({ body: { nope: true } }));
-    await expect(getQuestions()).resolves.toMatchObject({ ok: false });
-  });
-
-  it('returns a typed failure on malformed JSON', async () => {
-    installFetch(async () => fakeResponse({ badJson: true }));
-    await expect(getQuestions()).resolves.toMatchObject({ ok: false });
-  });
-});
-
-describe('getAvailability', () => {
-  it('POSTs questionKey and selections to /api/discovery/availability', async () => {
-    const fetchMock = installFetch(async () => fakeResponse({ body: { available: ['budget_1'], gated: true } }));
-    await getAvailability('budget', { cuisine: 'arabic' });
-    const req = callAt(fetchMock);
-    expect(req.method).toBe('POST');
-    expect(req.url.pathname).toBe('/api/discovery/availability');
-    expect(req.body).toEqual({ questionKey: 'budget', selections: { cuisine: 'arabic' } });
-  });
-
-  it('returns the gated list when the server gates', async () => {
-    installFetch(async () => fakeResponse({ body: { available: ['budget_1', 'budget_3'], gated: true } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: true, available: ['budget_1', 'budget_3'] });
-  });
-
-  it('returns not-gated when the server says gated:false', async () => {
-    installFetch(async () => fakeResponse({ body: { available: ['a'], gated: false } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open on a network error', async () => {
-    installFetch(async () => {
-      throw new TypeError('Network request failed');
-    });
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open on a 429 with the fail-open body', async () => {
-    installFetch(async () => fakeResponse({ status: 429, body: { available: [], gated: false } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open on a 500', async () => {
-    installFetch(async () => fakeResponse({ status: 500, body: { error: 'x', code: 'y' } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open on a 400', async () => {
-    installFetch(async () => fakeResponse({ status: 400, body: { error: 'Invalid input', code: 'INVALID_INPUT' } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open on malformed JSON', async () => {
-    installFetch(async () => fakeResponse({ badJson: true }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('fails open when gated is true but available is not an array', async () => {
-    installFetch(async () => fakeResponse({ body: { available: 'budget_1', gated: true } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: false });
-  });
-
-  it('ignores non-string entries in available', async () => {
-    installFetch(async () => fakeResponse({ body: { available: ['budget_1', 7, null], gated: true } }));
-    await expect(getAvailability('budget', {})).resolves.toEqual({ gated: true, available: ['budget_1'] });
-  });
-});
-
-describe('resolveDiscovery', () => {
-  const hit = { tier: 1, source: 'curated', picks: [{ restaurant_name: 'Nolu', restaurant_id: null, note: 'n', cuisine: [], area: null, price_range: 2, rating: 4.5, google_maps: null, website: null }], note: null };
-
-  it('POSTs selections and sessionId to /api/discovery/resolve', async () => {
-    const fetchMock = installFetch(async () => fakeResponse({ body: { result: hit } }));
-    await resolveDiscovery({ cuisine: 'arabic', budget: 'budget_2' }, 'session-1');
-    const req = callAt(fetchMock);
-    expect(req.method).toBe('POST');
-    expect(req.url.pathname).toBe('/api/discovery/resolve');
-    expect(req.body).toEqual({ selections: { cuisine: 'arabic', budget: 'budget_2' }, sessionId: 'session-1' });
-  });
-
-  it('returns the result on success', async () => {
-    installFetch(async () => fakeResponse({ body: { result: hit } }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({ ok: true, result: hit });
-  });
-
-  it('passes a no-match result through as ok (it is a valid answer, not an error)', async () => {
-    const none = { tier: 1, source: 'none', picks: [], note: "Abu Dhabi Foodies hasn't covered this combination yet — try a different option." };
-    installFetch(async () => fakeResponse({ body: { result: none } }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({ ok: true, result: none });
-  });
-
-  it('turns a 429 into a rate_limited failure with the visible note', async () => {
-    installFetch(async () => fakeResponse({ status: 429, body: { error: 'Too many requests.', code: 'RATE_LIMITED' } }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({
-      ok: false,
-      reason: 'rate_limited',
-      message: RATE_LIMIT_NOTE,
-    });
-  });
-
-  it('turns a 500 into a generic error failure', async () => {
-    installFetch(async () => fakeResponse({ status: 500, body: { error: 'x', code: 'RESOLVE_ERROR' } }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({
-      ok: false,
-      reason: 'error',
-      message: GENERIC_NOTE,
-    });
-  });
-
-  it('turns a network error into a generic error failure instead of throwing', async () => {
-    installFetch(async () => {
-      throw new TypeError('Network request failed');
-    });
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({
-      ok: false,
-      reason: 'error',
-      message: GENERIC_NOTE,
-    });
-  });
-
-  it('turns malformed JSON into a generic error failure', async () => {
-    installFetch(async () => fakeResponse({ badJson: true }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toMatchObject({ ok: false, reason: 'error', message: GENERIC_NOTE });
-  });
-
-  it('turns a 200 without a result into a generic error failure', async () => {
-    installFetch(async () => fakeResponse({ body: {} }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toMatchObject({ ok: false, reason: 'error' });
-  });
-
-  it('turns a 200 whose result has no picks array into a generic error failure', async () => {
-    installFetch(async () => fakeResponse({ body: { result: { tier: 1, source: 'none' } } }));
-    await expect(resolveDiscovery({ cuisine: 'arabic' }, 's')).resolves.toEqual({
-      ok: false,
-      reason: 'error',
-      message: GENERIC_NOTE,
-    });
-  });
-});
-
-describe('resolveDiscovery and the analytics switch', () => {
-  afterEach(() => __resetAnalyticsForTests());
-
-  it('sends the session id when analytics is on', async () => {
-    const fetchMock = installFetch(async () => fakeResponse({ body: { result: { tier: 1, source: 'none', picks: [], note: null } } }));
-    await resolveDiscovery({ cuisine: 'arabic' }, 's1');
-    expect(callAt(fetchMock).body).toEqual({ selections: { cuisine: 'arabic' }, sessionId: 's1' });
-  });
-
-  it('leaves the session id out when analytics is off, so the search is not linked to a run', async () => {
+  it('is not gated by the analytics switch', async () => {
+    const fetchMock = installFetch(async () => fakeResponse({ body: snapshotBody() }));
     await saveAnalyticsPreference(false);
-    const fetchMock = installFetch(async () => fakeResponse({ body: { result: { tier: 1, source: 'none', picks: [], note: null } } }));
-    await resolveDiscovery({ cuisine: 'arabic' }, 's1');
-    expect(callAt(fetchMock).body).toEqual({ selections: { cuisine: 'arabic' } });
+    await getSnapshot();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reportCompletion', () => {
+  it('POSTs the answers, the pick ids shown and the session id to /api/discovery/complete', async () => {
+    const fetchMock = installFetch();
+    await reportCompletion({ cuisine: 'arabic', budget: 'budget_2' }, 's1', ['pick-1']);
+    const req = callAt(fetchMock);
+    expect(req.method).toBe('POST');
+    expect(req.url.pathname).toBe('/api/discovery/complete');
+    expect(req.body).toEqual({ selections: { cuisine: 'arabic', budget: 'budget_2' }, pickIds: ['pick-1'], sessionId: 's1' });
+  });
+
+  it('makes no request at all when analytics is off', async () => {
+    const fetchMock = installFetch();
+    await saveAnalyticsPreference(false);
+    await reportCompletion({ cuisine: 'arabic' }, 's1', []);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('makes no request when "off" is saved and nothing has loaded the preference yet', async () => {
+    await AsyncStorage.setItem('abf_analytics', 'off');
+    const fetchMock = installFetch();
+    await reportCompletion({ cuisine: 'arabic' }, 's1', []);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('swallows network errors and error statuses', async () => {
+    installFetch(async () => {
+      throw new TypeError('Network request failed');
+    });
+    await expect(reportCompletion({ cuisine: 'arabic' }, 's1', [])).resolves.toBeUndefined();
+    installFetch(async () => fakeResponse({ status: 429 }));
+    await expect(reportCompletion({ cuisine: 'arabic' }, 's1', [])).resolves.toBeUndefined();
   });
 });
 
@@ -242,13 +146,6 @@ describe('analytics switch before the saved choice has loaded (app start)', () =
     const fetchMock = installFetch();
     await trackFlowEvent('s1', 'started', 'cuisine');
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('leaves the session id out of a search when "off" is saved and nothing has loaded the preference yet', async () => {
-    await AsyncStorage.setItem('abf_analytics', 'off');
-    const fetchMock = installFetch(async () => fakeResponse({ body: { result: { tier: 1, source: 'none', picks: [], note: null } } }));
-    await resolveDiscovery({ cuisine: 'arabic' }, 's1');
-    expect(callAt(fetchMock).body).toEqual({ selections: { cuisine: 'arabic' } });
   });
 
   it('still tracks at start when nothing is saved (default on)', async () => {
@@ -280,7 +177,7 @@ describe('trackFlowEvent analytics switch', () => {
   it('does not gate the other endpoints', async () => {
     const fetchMock = installFetch();
     await saveAnalyticsPreference(false);
-    await getQuestions();
+    await getRestaurantsByIds(['a']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -396,13 +293,8 @@ describe('request timeout', () => {
   }
 
   it.each([
-    ['getQuestions', () => getQuestions(), { ok: false, message: 'Something went wrong loading the guide.' }],
-    ['getAvailability', () => getAvailability('budget', {}), { gated: false }],
-    [
-      'resolveDiscovery',
-      () => resolveDiscovery({ cuisine: 'arabic' }, 's1'),
-      { ok: false, reason: 'error', message: GENERIC_NOTE },
-    ],
+    ['getSnapshot', () => getSnapshot(), { ok: false, message: LOAD_NOTE }],
+    ['reportCompletion', () => reportCompletion({ cuisine: 'arabic' }, 's1', []), undefined],
     ['trackFlowEvent', () => trackFlowEvent('s1', 'started', 'cuisine'), undefined],
     ['getRestaurantsByIds', () => getRestaurantsByIds(['a']), { ok: false, message: "Couldn't load your favourites." }],
   ])('%s gives up after 15s like a network failure', async (_name, call, expected) => {
@@ -433,11 +325,7 @@ describe('request timeout', () => {
     }
 
     it.each([
-      ['resolveDiscovery', 200, () => resolveDiscovery({ cuisine: 'arabic' }, 's1'), { ok: false, reason: 'error', message: GENERIC_NOTE }],
-      // A 429 whose body stalls must not be reported as rate limiting: the read failed.
-      ['resolveDiscovery (429 headers)', 429, () => resolveDiscovery({ cuisine: 'arabic' }, 's1'), { ok: false, reason: 'error', message: GENERIC_NOTE }],
-      ['getAvailability', 200, () => getAvailability('budget', {}), { gated: false }],
-      ['getQuestions', 200, () => getQuestions(), { ok: false, message: 'Something went wrong loading the guide.' }],
+      ['getSnapshot', 200, () => getSnapshot(), { ok: false, message: LOAD_NOTE }],
       ['getRestaurantsByIds', 200, () => getRestaurantsByIds(['a']), { ok: false, message: "Couldn't load your favourites." }],
     ])('%s fails like a network error after 15s', async (_name, status, call, expected) => {
       stallingBodyFetch(status);

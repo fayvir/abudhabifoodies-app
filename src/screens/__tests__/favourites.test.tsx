@@ -6,7 +6,7 @@ import { renderRouter } from 'expo-router/testing-library';
 import * as client from '../../api/client';
 import { BEEN_THERE_KEY, __resetFavouritesForTests, FAVOURITES_KEY, toggleFavourite } from '../../favourites/store';
 import { __resetHistoryForTests, getHistoryState, recordPick } from '../../history/store';
-import { opt, pick, question, restaurant } from '../../testing/builders';
+import { opt, pick, question, restaurant, snapshot } from '../../testing/builders';
 import Favourites from '../../../app/(tabs)/favourites';
 import Discover from '../../../app/(tabs)/index';
 
@@ -28,11 +28,10 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   __resetFavouritesForTests();
   __resetHistoryForTests();
-  api.getQuestions.mockResolvedValue({
+  api.getSnapshot.mockResolvedValue({
     ok: true,
-    data: [question('q-c', 'cuisine', [opt('arabic', { label: 'Arabic' })], { label: 'What are you in the mood for?' })],
+    data: snapshot([question('q-c', 'cuisine', [opt('arabic', { label: 'Arabic' })], { label: 'What are you in the mood for?' })]),
   });
-  api.getAvailability.mockResolvedValue({ gated: false });
   api.trackFlowEvent.mockResolvedValue(undefined);
   api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [] });
 });

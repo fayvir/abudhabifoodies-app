@@ -1,22 +1,25 @@
 import { randomUUID } from 'expo-crypto';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getAvailability, getQuestions, resolveDiscovery, trackFlowEvent } from '../api/client';
+import { reportCompletion, trackFlowEvent } from '../api/client';
 import type {
   DiscoveryOption,
   DiscoveryQuestionWithOptions as Q,
+  DiscoverySnapshot,
   ResultCard,
   Selections,
 } from '../api/types';
+import { useSnapshot } from '../snapshot/useSnapshot';
 import {
   applyAvailability,
   chevronOptionIds,
   findNextQuestion,
   findStartQuestion,
-  isGatedQuestion,
   isRefinerQuestion,
+  resolveFromSnapshot,
   selectOption,
   SKIP_LABEL,
+  snapshotAvailability,
   sortOptionsForQuestion,
 } from './engine';
 
@@ -29,10 +32,9 @@ export interface TranscriptEntry {
 export type FlowOutcome =
   | { kind: 'pick'; picks: ResultCard[] }
   | { kind: 'no_match'; note: string }
-  | { kind: 'rate_limited'; message: string }
   | { kind: 'error'; message: string };
 
-export type FlowStatus = 'loading' | 'load_error' | 'ready' | 'busy' | 'done';
+export type FlowStatus = 'loading' | 'load_error' | 'ready' | 'done';
 
 export interface DiscoveryFlowState {
   status: FlowStatus;
@@ -51,197 +53,178 @@ export interface DiscoveryFlowState {
 
 const LOAD_ERROR = 'Something went wrong loading the guide.';
 const GENERIC_ERROR = 'Something went wrong — please try again.';
-const NO_MATCH_NOTE = "We haven't covered this combination yet — try a different option.";
 
 interface Run {
-  token: number;
   sessionId: string;
+  /** The snapshot this run answers from; a refresh mid-run only affects the next run. */
+  snapshot: DiscoverySnapshot;
   selections: Selections;
   asked: Set<string>;
   current: Q | null;
+  answered: boolean;
 }
 
-function track(sessionId: string, event: 'started' | 'question_seen', questionKey: string): void {
-  // Fire-and-forget: analytics must never break the flow.
+function fireAndForget(send: () => Promise<void>): void {
+  // Analytics must never break the flow.
   try {
-    void Promise.resolve(trackFlowEvent(sessionId, event, questionKey)).catch(() => undefined);
+    void Promise.resolve(send()).catch(() => undefined);
   } catch {
     // ignore
   }
 }
 
+/**
+ * The guided flow, answered entirely from the downloaded snapshot: every tap
+ * moves on at once, with no network wait. Tracking events and the finished
+ * search are reported in the background.
+ */
 export function useDiscoveryFlow(): DiscoveryFlowState {
-  const [status, setStatus] = useState<FlowStatus>('loading');
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { snapshot, status: snapshotStatus, retry } = useSnapshot();
   const [question, setQuestion] = useState<Q | null>(null);
   const [options, setOptions] = useState<DiscoveryOption[]>([]);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [outcome, setOutcome] = useState<FlowOutcome | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  // Full option set + flags for the question on screen.
-  const [shown, setShown] = useState<Q | null>(null);
+  const [badSnapshot, setBadSnapshot] = useState(false);
 
-  const questionsRef = useRef<Q[]>([]);
-  const busyRef = useRef(false);
-  const tokenRef = useRef(0);
   const runRef = useRef<Run | null>(null);
+  const latestSnapshot = useRef<DiscoverySnapshot | null>(null);
 
-  const seed = useCallback((questions: Q[]): boolean => {
-    const start = findStartQuestion(questions);
-    tokenRef.current += 1;
-    if (!start) {
-      runRef.current = null;
-      return false;
-    }
-    const run: Run = {
-      token: tokenRef.current,
-      sessionId: randomUUID(),
-      selections: {},
-      asked: new Set([start.id]),
-      current: start,
-    };
-    runRef.current = run;
-    busyRef.current = false;
-    track(run.sessionId, 'started', start.key);
-    track(run.sessionId, 'question_seen', start.key);
-    setTranscript([]);
-    setOutcome(null);
-    setQuestion(start);
-    setShown(start);
-    setOptions(sortOptionsForQuestion(start, start.options));
-    setStatus('ready');
-    return true;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setStatus('loading');
-    setLoadError(null);
-    void getQuestions().then((res) => {
-      if (cancelled) return;
-      if (res.ok && res.data.length > 0) {
-        questionsRef.current = res.data;
-        if (seed(res.data)) return;
-      }
-      setLoadError(res.ok ? LOAD_ERROR : res.message || LOAD_ERROR);
-      setStatus('load_error');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadAttempt, seed]);
-
-  const retry = useCallback(() => setLoadAttempt((n) => n + 1), []);
-
-  const advanceInner = useCallback(async (run: Run, from: Q, chosen: DiscoveryOption | null, entry: TranscriptEntry) => {
-    const token = run.token;
-    if (chosen) run.selections = selectOption(run.selections, from, chosen);
-    setTranscript((t) => [...t, entry]);
-    setQuestion(null);
-    setStatus('busy');
-
-    const next = findNextQuestion(questionsRef.current, from, chosen, run.asked);
-    if (!next) {
-      let result: FlowOutcome;
-      try {
-        const res = await resolveDiscovery(run.selections, run.sessionId);
-        if (res.ok) {
-          const r = res.result;
-          result =
-            r.source === 'curated' && r.picks.length > 0
-              ? { kind: 'pick', picks: r.picks }
-              : { kind: 'no_match', note: r.note || NO_MATCH_NOTE };
-        } else if (res.reason === 'rate_limited') {
-          result = { kind: 'rate_limited', message: res.message };
-        } else {
-          result = { kind: 'error', message: res.message };
-        }
-      } catch {
-        result = { kind: 'error', message: GENERIC_ERROR };
-      }
-      if (tokenRef.current !== token) return;
-      run.current = null;
-      setShown(null);
-      setOptions([]);
-      setOutcome(result);
-      setStatus('done');
-      return;
-    }
-
-    run.asked.add(next.id);
-    run.current = next;
-    let visible = sortOptionsForQuestion(next, next.options);
-    if (isGatedQuestion(next)) {
-      try {
-        visible = applyAvailability(visible, await getAvailability(next.key, run.selections));
-      } catch {
-        // fail open
-      }
-      if (tokenRef.current !== token) return;
-    }
-    track(run.sessionId, 'question_seen', next.key);
-    setShown(next);
+  const show = useCallback((q: Q, run: Run) => {
+    const visible = applyAvailability(
+      sortOptionsForQuestion(q, q.options),
+      snapshotAvailability(run.snapshot, q, run.selections),
+    );
+    setQuestion(q);
     setOptions(visible);
-    setQuestion(next);
-    setStatus('ready');
   }, []);
 
-  // Whatever happens inside, the busy guard is released and the user is never
-  // left on the spinner: an unexpected throw becomes the generic error outcome.
-  const advance = useCallback(
-    async (from: Q, chosen: DiscoveryOption | null, entry: TranscriptEntry) => {
-      const run = runRef.current;
-      if (!run) return;
-      busyRef.current = true;
+  /**
+   * Starts a run. `sessionId` given = same run on a newer snapshot (no new tracking).
+   * False when the snapshot has no usable start question; malformed data never throws.
+   */
+  const seed = useCallback(
+    (snap: DiscoverySnapshot, sessionId?: string): boolean => {
+      runRef.current = null;
       try {
-        await advanceInner(run, from, chosen, entry);
-      } catch {
-        if (tokenRef.current === run.token) {
-          run.current = null;
-          setShown(null);
-          setOptions([]);
-          setQuestion(null);
-          setOutcome({ kind: 'error', message: GENERIC_ERROR });
-          setStatus('done');
+        const start = findStartQuestion(snap.questions);
+        if (!start) return false;
+        const run: Run = {
+          sessionId: sessionId ?? randomUUID(),
+          snapshot: snap,
+          selections: {},
+          asked: new Set([start.id]),
+          current: start,
+          answered: false,
+        };
+        show(start, run);
+        runRef.current = run;
+        if (!sessionId) {
+          fireAndForget(() => trackFlowEvent(run.sessionId, 'started', start.key));
+          fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', start.key));
         }
-      } finally {
-        if (tokenRef.current === run.token) busyRef.current = false;
+        setTranscript([]);
+        setOutcome(null);
+        return true;
+      } catch {
+        setQuestion(null);
+        setOptions([]);
+        return false;
       }
     },
-    [advanceInner],
+    [show],
+  );
+
+  // First snapshot starts the flow. A newer one replaces it only while nothing
+  // has been answered yet; otherwise the next run picks it up.
+  useEffect(() => {
+    if (!snapshot) return;
+    latestSnapshot.current = snapshot;
+    const run = runRef.current;
+    if (run && (run.answered || run.snapshot === snapshot)) return;
+    const startKey = run?.current?.key;
+    const sameStart = run !== null && findStartQuestion(snapshot.questions)?.key === startKey;
+    setBadSnapshot(!seed(snapshot, sameStart ? run.sessionId : undefined));
+  }, [snapshot, seed]);
+
+  const finish = useCallback((run: Run) => {
+    run.current = null;
+    setQuestion(null);
+    setOptions([]);
+    const res = resolveFromSnapshot(run.snapshot, run.selections);
+    if (res.kind === 'pick') {
+      setOutcome({ kind: 'pick', picks: res.picks });
+    } else if (res.kind === 'no_match') {
+      setOutcome({ kind: 'no_match', note: res.note });
+    } else {
+      setOutcome({ kind: 'error', message: GENERIC_ERROR });
+      return; // not a real search: nothing to report
+    }
+    const pickIds = res.kind === 'pick' ? res.pickIds : [];
+    fireAndForget(() => reportCompletion(run.selections, run.sessionId, pickIds));
+  }, []);
+
+  const advance = useCallback(
+    (run: Run, from: Q, chosen: DiscoveryOption | null, answerLabel: string) => {
+      run.answered = true;
+      setTranscript((t) => [...t, { questionKey: from.key, questionLabel: from.label, answerLabel }]);
+      try {
+        if (chosen) run.selections = selectOption(run.selections, from, chosen);
+        const next = findNextQuestion(run.snapshot.questions, from, chosen, run.asked);
+        if (!next) {
+          finish(run);
+          return;
+        }
+        run.asked.add(next.id);
+        run.current = next;
+        fireAndForget(() => trackFlowEvent(run.sessionId, 'question_seen', next.key));
+        show(next, run);
+      } catch {
+        // Malformed data must never leave the user stuck: end in the error outcome.
+        run.current = null;
+        setQuestion(null);
+        setOptions([]);
+        setOutcome({ kind: 'error', message: GENERIC_ERROR });
+      }
+    },
+    [finish, show],
   );
 
   const answer = useCallback(
     (option: DiscoveryOption) => {
       const run = runRef.current;
-      if (busyRef.current || !run?.current) return;
-      const from = run.current;
-      busyRef.current = true;
-      void advance(from, option, { questionKey: from.key, questionLabel: from.label, answerLabel: option.label });
+      const from = run?.current;
+      // A stale tap (double tap, or a chip from a question already answered) is ignored.
+      if (!run || !from || !from.options.some((o) => o.id === option.id)) return;
+      advance(run, from, option, option.label);
     },
     [advance],
   );
 
   const skip = useCallback(() => {
     const run = runRef.current;
-    if (busyRef.current || !run?.current || !isRefinerQuestion(run.current)) return;
-    const from = run.current;
-    busyRef.current = true;
-    void advance(from, null, { questionKey: from.key, questionLabel: from.label, answerLabel: SKIP_LABEL });
+    const from = run?.current;
+    if (!run || !from || !isRefinerQuestion(from)) return;
+    advance(run, from, null, SKIP_LABEL);
   }, [advance]);
 
   const restart = useCallback(() => {
-    if (questionsRef.current.length > 0) seed(questionsRef.current);
+    if (latestSnapshot.current) setBadSnapshot(!seed(latestSnapshot.current));
   }, [seed]);
 
   const chevronIds = useMemo<ReadonlySet<string>>(
-    () => (shown ? chevronOptionIds(shown.options) : new Set<string>()),
-    [shown],
+    () => (question ? chevronOptionIds(question.options) : new Set<string>()),
+    [question],
   );
+
+  let status: FlowStatus;
+  if (outcome) status = 'done';
+  else if (question) status = 'ready';
+  else if (snapshotStatus === 'error' || badSnapshot) status = 'load_error';
+  else status = 'loading';
 
   return {
     status,
-    loadError,
+    loadError: status === 'load_error' ? LOAD_ERROR : null,
     retry,
     question,
     options,

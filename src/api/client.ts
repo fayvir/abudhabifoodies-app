@@ -1,12 +1,9 @@
 import { whenAnalyticsReady } from '../settings/analyticsPreference';
 import type {
   ApiResult,
-  Availability,
-  DiscoveryResult,
-  DiscoveryQuestionWithOptions,
+  DiscoverySnapshot,
   FlowEventType,
   PublicRestaurant,
-  ResolveOutcome,
   Selections,
 } from './types';
 
@@ -15,8 +12,7 @@ export const BASE_URL = 'https://www.abudhabifoodies.ae';
 // Identifies the app (and that it is a mobile client) in the site's server logs.
 const USER_AGENT = 'AbuDhabiFoodies/1.0 (Mobile)';
 
-const RATE_LIMIT_NOTE = "You're going a bit fast — give it a few seconds and try again.";
-const GENERIC_NOTE = 'Something went wrong — please try again.';
+const LOAD_NOTE = 'Something went wrong loading the guide.';
 const ID_CHUNK = 40;
 const TIMEOUT_MS = 15_000;
 
@@ -59,32 +55,34 @@ async function request(path: string, body?: unknown): Promise<Reply | null> {
   }
 }
 
-export async function getQuestions(): Promise<ApiResult<DiscoveryQuestionWithOptions[]>> {
-  const r = await request('/api/discovery/questions');
-  if (r?.ok && isRecord(r.body) && Array.isArray(r.body.questions)) {
-    return { ok: true, data: r.body.questions as DiscoveryQuestionWithOptions[] };
+/** The snapshot shape this build understands; the site bumps it on a breaking change. */
+export const SNAPSHOT_VERSION = 1;
+
+export async function getSnapshot(): Promise<ApiResult<DiscoverySnapshot>> {
+  const r = await request('/api/discovery/snapshot');
+  const b = r?.body;
+  if (
+    r?.ok &&
+    isRecord(b) &&
+    b.version === SNAPSHOT_VERSION &&
+    Array.isArray(b.questions) &&
+    isRecord(b.availability) &&
+    isRecord(b.results) &&
+    isRecord(b.cards)
+  ) {
+    return { ok: true, data: b as unknown as DiscoverySnapshot };
   }
-  return { ok: false, message: 'Something went wrong loading the guide.' };
+  return { ok: false, message: LOAD_NOTE };
 }
 
-export async function getAvailability(questionKey: string, selections: Selections): Promise<Availability> {
-  const r = await request('/api/discovery/availability', { questionKey, selections });
-  if (r?.ok && isRecord(r.body) && r.body.gated === true && Array.isArray(r.body.available)) {
-    return { gated: true, available: r.body.available.filter((v): v is string => typeof v === 'string') };
-  }
-  return { gated: false };
-}
-
-export async function resolveDiscovery(selections: Selections, sessionId: string): Promise<ResolveOutcome> {
-  // With analytics off the session id is not sent, so the server cannot link this
-  // search to the run's other events (Settings > Privacy).
-  const body = (await whenAnalyticsReady()) ? { selections, sessionId } : { selections };
-  const r = await request('/api/discovery/resolve', body);
-  if (r?.ok && isRecord(r.body) && isRecord(r.body.result) && Array.isArray(r.body.result.picks)) {
-    return { ok: true, result: r.body.result as unknown as DiscoveryResult };
-  }
-  if (r?.status === 429) return { ok: false, reason: 'rate_limited', message: RATE_LIMIT_NOTE };
-  return { ok: false, reason: 'error', message: GENERIC_NOTE };
+/**
+ * Reports a finished search (the answers and the picks shown) so the site's
+ * Insights stay complete now that the phone resolves searches itself.
+ * Fire-and-forget, and only with analytics on (Settings > Privacy).
+ */
+export async function reportCompletion(selections: Selections, sessionId: string, pickIds: string[]): Promise<void> {
+  if (!(await whenAnalyticsReady())) return;
+  await request('/api/discovery/complete', { selections, pickIds, sessionId });
 }
 
 export async function trackFlowEvent(

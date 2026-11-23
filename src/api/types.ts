@@ -59,11 +59,22 @@ export interface ResultCard {
   instagram_url?: string | null;
 }
 
-export interface DiscoveryResult {
-  tier: 1;
-  source: 'curated' | 'none';
-  picks: ResultCard[];
-  note?: string | null;
+/**
+ * The whole guided flow answered in advance (GET /api/discovery/snapshot,
+ * built on the site by src/lib/discovery/snapshot.ts). The app answers every
+ * question from it on the phone; nothing in the flow waits on the network.
+ */
+export interface DiscoverySnapshot {
+  version: number;
+  generated_at: string;
+  questions: DiscoveryQuestionWithOptions[];
+  /** availabilityKey(question, answers) -> option values to show. Missing = show all. */
+  availability: Record<string, string[]>;
+  /** selectionsKey(answers) -> pick ids. Show one random editorial, then one random sponsored. */
+  results: Record<string, { editorial: string[]; sponsored: string[] }>;
+  /** pick id -> card */
+  cards: Record<string, ResultCard>;
+  no_match_note: string;
 }
 
 export interface PublicRestaurant {
@@ -90,7 +101,3 @@ export type FlowEventType = 'started' | 'question_seen';
 export type Availability = { gated: false } | { gated: true; available: string[] };
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; message: string };
-
-export type ResolveOutcome =
-  | { ok: true; result: DiscoveryResult }
-  | { ok: false; reason: 'rate_limited' | 'error'; message: string };

@@ -133,7 +133,7 @@ export default function Discover() {
           </View>
         ) : null}
 
-        {status === 'loading' || status === 'busy' ? (
+        {status === 'loading' ? (
           <View testID="flow-loading" style={styles.center}>
             <ActivityIndicator color={theme.primary} />
           </View>
@@ -157,7 +157,7 @@ export default function Discover() {
           </View>
         ) : null}
         {outcome?.kind === 'no_match' ? notice(outcome.note) : null}
-        {outcome?.kind === 'rate_limited' || outcome?.kind === 'error' ? notice(outcome.message) : null}
+        {outcome?.kind === 'error' ? notice(outcome.message) : null}
       </ScrollView>
     </View>
   );

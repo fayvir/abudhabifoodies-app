@@ -1,9 +1,13 @@
 import questionsFixture from '../../api/__fixtures__/questions.json';
 import type { Availability, DiscoveryOption, DiscoveryQuestionWithOptions } from '../../api/types';
-import { opt, question } from '../../testing/builders';
+import { opt, pick, question, snapshot } from '../../testing/builders';
 import {
   SKIP_LABEL,
   applyAvailability,
+  availabilityKey,
+  resolveFromSnapshot,
+  selectionsKey,
+  snapshotAvailability,
   buildQueryLabel,
   chevronOptionIds,
   findNextQuestion,
@@ -394,5 +398,86 @@ describe('buildQueryLabel', () => {
     const q1 = question('1', 'k1', [opt('same', { label: 'First' })]);
     const q2 = question('2', 'k2', [opt('same', { label: 'Second' })]);
     expect(buildQueryLabel([q1, q2], { k2: 'same', k1: 'same' })).toBe('Second, First');
+  });
+});
+
+// The site builds these exact strings (src/lib/discovery/flow.ts, pinned by
+// scripts/test-discovery-flow.ts there). Both sides test the same literals.
+describe('snapshot keys (shared with the site)', () => {
+  it('selectionsKey sorts keys and joins key=value with &', () => {
+    expect(selectionsKey({ what_kind_of_vibe_are_you_after_low: 'casual', cuisine: 'arabic', budget: 'budget_1' })).toBe(
+      'budget=budget_1&cuisine=arabic&what_kind_of_vibe_are_you_after_low=casual',
+    );
+  });
+
+  it('selectionsKey URI-encodes and drops empty values', () => {
+    expect(selectionsKey({ b: 'x&y=z', a: '', c: 'é' })).toBe('b=x%26y%3Dz&c=%C3%A9');
+    expect(selectionsKey({})).toBe('');
+  });
+
+  it('availabilityKey is question key, a bar, then the answers so far', () => {
+    expect(availabilityKey('what_kind_of_vibe_are_you_after_low', { cuisine: 'arabic', budget: 'budget_1' })).toBe(
+      'what_kind_of_vibe_are_you_after_low|budget=budget_1&cuisine=arabic',
+    );
+    expect(availabilityKey('budget', { cuisine: 'arabic' })).toBe('budget|cuisine=arabic');
+  });
+});
+
+describe('snapshotAvailability', () => {
+  const budget = question('q-b', 'budget', [opt('budget_1'), opt('budget_2')], { role: 'refiner' });
+  const plain = question('q-p', 'cuisine', [opt('arabic')]);
+
+  it('returns the listed values for a gated question', () => {
+    const snap = snapshot([budget], { availability: { 'budget|cuisine=arabic': ['budget_2'] } });
+    expect(snapshotAvailability(snap, budget, { cuisine: 'arabic' })).toEqual({ gated: true, available: ['budget_2'] });
+  });
+
+  it('fails open when the snapshot has no entry', () => {
+    expect(snapshotAvailability(snapshot([budget]), budget, { cuisine: 'arabic' })).toEqual({ gated: false });
+  });
+
+  it('never gates a question the site does not gate', () => {
+    const snap = snapshot([plain], { availability: { 'cuisine|': ['nothing'] } });
+    expect(snapshotAvailability(snap, plain, {})).toEqual({ gated: false });
+  });
+});
+
+describe('resolveFromSnapshot', () => {
+  const a = pick({ restaurant_name: 'A', restaurant_id: 'r-a' });
+  const b = pick({ restaurant_name: 'B', restaurant_id: 'r-b' });
+  const s = pick({ restaurant_name: 'S', restaurant_id: 'r-s', is_sponsored: true, advertiser_name: 'Ad Co' });
+  const snap = snapshot([], {
+    results: {
+      'cuisine=arabic': { editorial: ['p-a', 'p-b'], sponsored: [] },
+      'cuisine=thai': { editorial: ['p-a'], sponsored: ['p-s'] },
+      'cuisine=french': { editorial: [], sponsored: [] },
+      'cuisine=korean': { editorial: ['p-gone'], sponsored: [] },
+    },
+    cards: { 'p-a': a, 'p-b': b, 'p-s': s },
+  });
+
+  it('picks one editorial card at random', () => {
+    expect(resolveFromSnapshot(snap, { cuisine: 'arabic' }, () => 0)).toEqual({ kind: 'pick', picks: [a], pickIds: ['p-a'] });
+    expect(resolveFromSnapshot(snap, { cuisine: 'arabic' }, () => 0.99)).toEqual({ kind: 'pick', picks: [b], pickIds: ['p-b'] });
+  });
+
+  it('adds a sponsored card after the editorial one', () => {
+    expect(resolveFromSnapshot(snap, { cuisine: 'thai' }, () => 0)).toEqual({
+      kind: 'pick',
+      picks: [a, s],
+      pickIds: ['p-a', 'p-s'],
+    });
+  });
+
+  it('is no_match with the snapshot note when the combination has no picks', () => {
+    expect(resolveFromSnapshot(snap, { cuisine: 'french' })).toEqual({ kind: 'no_match', note: snap.no_match_note });
+  });
+
+  it('skips pick ids with no card', () => {
+    expect(resolveFromSnapshot(snap, { cuisine: 'korean' })).toEqual({ kind: 'no_match', note: snap.no_match_note });
+  });
+
+  it('is missing when the answers are not in the snapshot at all', () => {
+    expect(resolveFromSnapshot(snap, { cuisine: 'mexican' })).toEqual({ kind: 'missing' });
   });
 });

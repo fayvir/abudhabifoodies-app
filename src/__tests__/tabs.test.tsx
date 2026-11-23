@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import { renderRouter } from 'expo-router/testing-library';
 
@@ -6,7 +7,7 @@ import TabsLayout from '../../app/(tabs)/_layout';
 import Favourites from '../../app/(tabs)/favourites';
 import Discover from '../../app/(tabs)/index';
 import Settings from '../../app/(tabs)/settings';
-import { opt, question } from '../testing/builders';
+import { opt, question, snapshot } from '../testing/builders';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -26,8 +27,9 @@ function renderApp(initialUrl = '/') {
   );
 }
 
-beforeEach(() => {
-  jest.mocked(client.getQuestions).mockReturnValue(new Promise(() => undefined));
+beforeEach(async () => {
+  await AsyncStorage.clear(); // a snapshot stored by one test must not start the next
+  jest.mocked(client.getSnapshot).mockReturnValue(new Promise(() => undefined));
   jest.mocked(client.getRestaurantsByIds).mockResolvedValue({ ok: true, data: [] });
 });
 
@@ -35,15 +37,15 @@ beforeEach(() => {
 // `screen-title` testID, so assertions now use each real screen's own content.
 describe('tabs', () => {
   it('shows the Discover screen first', async () => {
-    let release: (v: Awaited<ReturnType<typeof client.getQuestions>>) => void = () => undefined;
-    jest.mocked(client.getQuestions).mockReturnValue(new Promise((r) => { release = r; }));
+    let release: (v: Awaited<ReturnType<typeof client.getSnapshot>>) => void = () => undefined;
+    jest.mocked(client.getSnapshot).mockReturnValue(new Promise((r) => { release = r; }));
     jest.mocked(client.trackFlowEvent).mockResolvedValue(undefined);
     const view = await renderApp();
     expect(view.getByTestId('flow-loading')).toBeTruthy();
     await act(async () => {
       release({
         ok: true,
-        data: [question('q-c', 'cuisine', [opt('arabic', { label: 'Arabic' })], { label: 'What are you in the mood for?' })],
+        data: snapshot([question('q-c', 'cuisine', [opt('arabic', { label: 'Arabic' })], { label: 'What are you in the mood for?' })]),
       });
     });
     await waitFor(() => expect(view.getByText('What are you in the mood for?')).toBeTruthy());

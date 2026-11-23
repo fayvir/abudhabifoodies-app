@@ -47,7 +47,7 @@ export function question(
   };
 }
 
-import type { PublicRestaurant, ResultCard } from '../api/types';
+import type { DiscoverySnapshot, PublicRestaurant, ResultCard } from '../api/types';
 
 /** A complete resolve pick; override fields per test. */
 export function pick(overrides: Partial<ResultCard> = {}): ResultCard {
@@ -91,6 +91,23 @@ export function restaurant(overrides: Partial<PublicRestaurant> = {}): PublicRes
     lng: null,
     is_gem: false,
     hours: null,
+    ...overrides,
+  };
+}
+
+/** A snapshot over `questions`, empty otherwise; tests add the results, availability and cards they need. */
+export function snapshot(
+  questions: DiscoverySnapshot['questions'],
+  overrides: Partial<DiscoverySnapshot> = {},
+): DiscoverySnapshot {
+  return {
+    version: 1,
+    generated_at: '2026-11-23T00:00:00Z',
+    questions,
+    availability: {},
+    results: {},
+    cards: {},
+    no_match_note: 'Nothing for this combination yet.',
     ...overrides,
   };
 }
