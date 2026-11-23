@@ -7,6 +7,13 @@ appId: ae.abudhabifoodies.app
 - extendedWaitUntil:
     visible: "What are you in the mood for?"
     timeout: 60000
+# The splash covers the (already rendered) first question until the guide is ready.
+- extendedWaitUntil:
+    notVisible:
+      id: "brand-splash"
+    timeout: 30000
+- waitForAnimationToEnd:
+    timeout: 3000
 - takeScreenshot: screenshots/03-discover
 
 - tapOn: "Italian"
