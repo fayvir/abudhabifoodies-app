@@ -13,6 +13,8 @@ import { stickerShadow } from '../../src/components/stickerShadow';
 import { useFavourites } from '../../src/favourites/useFavourites';
 import { weekHours } from '../../src/lib/hours';
 import { priceAedLabel } from '../../src/lib/price';
+import { noteFor } from '../../src/snapshot/notes';
+import { useSnapshot } from '../../src/snapshot/useSnapshot';
 import { useTheme } from '../../src/theme/useTheme';
 
 type Load = { kind: 'loading' } | { kind: 'error' } | { kind: 'missing' } | { kind: 'ready'; r: PublicRestaurant };
@@ -23,6 +25,7 @@ export default function RestaurantDetail() {
   const dark = useColorScheme() === 'dark';
   const { id } = useLocalSearchParams<{ id: string }>();
   const favourites = useFavourites();
+  const { snapshot } = useSnapshot();
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [failed, setFailed] = useState<readonly string[]>([]);
 
@@ -68,6 +71,7 @@ export default function RestaurantDetail() {
     const price = priceAedLabel(r.price_range);
     const saved = favourites.isFavourite(r.id);
     const week = weekHours(r.hours);
+    const note = noteFor(snapshot, r.id);
     body = (
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { backgroundColor: theme.bgElevated, borderColor: theme.borderStrong }, stickerShadow(theme, dark)]}>
@@ -88,6 +92,7 @@ export default function RestaurantDetail() {
                 </View>
               ) : null}
             </View>
+            {note ? <Text style={[styles.note, { color: theme.textSecondary }]}>{`“${note}”`}</Text> : null}
             <View style={styles.chips}>
               {(r.cuisine ?? []).map((c) => (
                 <View key={c} style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.bgSecondary }]}>
@@ -98,16 +103,23 @@ export default function RestaurantDetail() {
               {price ? <Text style={[styles.meta, styles.bold, { color: theme.textMuted }]}>{price}</Text> : null}
             </View>
             <OpenStatus hours={r.hours} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={saved ? 'Remove from favourites' : 'Save to favourites'}
-              onPress={() => void favourites.toggle(r.id)}
-              style={[styles.save, { borderColor: theme.borderStrong }]}
-            >
-              <Ionicons name={saved ? 'heart' : 'heart-outline'} size={20} color={saved ? theme.primary : theme.text} />
-              <Text style={[styles.saveText, { color: theme.text }]}>{saved ? 'Saved' : 'Save'}</Text>
-            </Pressable>
-            <RestaurantActions name={r.name} phone={r.phone} googleMaps={r.google_maps} website={r.website} />
+            <RestaurantActions
+              name={r.name}
+              phone={r.phone}
+              googleMaps={r.google_maps}
+              website={r.website}
+              iconOnly
+              before={
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={saved ? 'Remove from favourites' : 'Save to favourites'}
+                  onPress={() => void favourites.toggle(r.id)}
+                  style={[styles.save, { borderColor: theme.borderStrong, backgroundColor: theme.bgElevated }]}
+                >
+                  <Ionicons name={saved ? 'heart' : 'heart-outline'} size={22} color={saved ? theme.primary : theme.text} />
+                </Pressable>
+              }
+            />
           </View>
         </View>
 
@@ -162,8 +174,8 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '600' },
   meta: { fontSize: 12 },
   bold: { fontWeight: '700' },
-  save: { alignSelf: 'flex-start', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 2, borderRadius: 14, paddingHorizontal: 14 },
-  saveText: { fontSize: 14, fontWeight: '700' },
+  note: { fontSize: 15, fontStyle: 'italic', lineHeight: 21 },
+  save: { flex: 1, minHeight: 44, borderWidth: 2, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   hours: { borderWidth: 1.5, borderRadius: 16, padding: 16, gap: 8 },
   hoursTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   hoursRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },

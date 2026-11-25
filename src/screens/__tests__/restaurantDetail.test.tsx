@@ -4,7 +4,8 @@ import { renderRouter } from 'expo-router/testing-library';
 
 import * as client from '../../api/client';
 import { __resetFavouritesForTests, FAVOURITES_KEY } from '../../favourites/store';
-import { restaurant } from '../../testing/builders';
+import { pick, restaurant, snapshot } from '../../testing/builders';
+import { __resetSnapshotForTests } from '../../snapshot/useSnapshot';
 import RestaurantDetail from '../../../app/restaurant/[id]';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -17,6 +18,8 @@ const open = () => renderRouter({ 'restaurant/[id]': RestaurantDetail }, { initi
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  __resetSnapshotForTests();
+  api.getSnapshot.mockResolvedValue({ ok: true, data: snapshot([]) });
   await AsyncStorage.clear();
   __resetFavouritesForTests();
 });
@@ -65,5 +68,41 @@ describe('Restaurant detail', () => {
     api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [] });
     const view = await open();
     await waitFor(() => expect(view.getByText('This restaurant is no longer listed.')).toBeTruthy());
+  });
+
+  it('shows the curator\'s note from the guide, preferring an editorial pick', async () => {
+    const snap = snapshot([]);
+    snap.cards = {
+      p1: pick({ restaurant_id: 'a', note: 'Paid words', is_sponsored: true }),
+      p2: pick({ restaurant_id: 'a', note: 'Best teppanyaki show in town' }),
+      p3: pick({ restaurant_id: 'other', note: 'Not this one' }),
+    };
+    api.getSnapshot.mockResolvedValue({ ok: true, data: snap });
+    api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ id: 'a', name: 'Alpha Grill' })] });
+    const view = await open();
+    await waitFor(() => expect(view.getByText('“Best teppanyaki show in town”')).toBeTruthy());
+    expect(view.queryByText(/Paid words|Not this one/)).toBeNull();
+  });
+
+  it('never shows a sponsored pick\'s note (it would be unlabelled paid words)', async () => {
+    const snap = snapshot([]);
+    snap.cards = { p1: pick({ restaurant_id: 'a', note: 'Paid words', is_sponsored: true }) };
+    api.getSnapshot.mockResolvedValue({ ok: true, data: snap });
+    api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ id: 'a', name: 'Alpha Grill' })] });
+    const view = await open();
+    await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
+    expect(view.queryByText(/Paid words/)).toBeNull();
+  });
+
+  it('puts Save beside icon-only Call, Directions and Reserve, all still labelled', async () => {
+    api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ id: 'a', name: 'Alpha Grill' })] });
+    const view = await open();
+    await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
+    for (const name of ['Save to favourites', 'Call Alpha Grill', 'Directions to Alpha Grill', 'Visit website for Alpha Grill']) {
+      expect(view.getByRole('button', { name })).toBeTruthy();
+    }
+    expect(view.queryByText('Call')).toBeNull();
+    expect(view.queryByText('Reserve')).toBeNull();
+    expect(view.queryByText('Save')).toBeNull(); // the heart has no word; "Saved" is the back button
   });
 });
