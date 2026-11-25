@@ -11,7 +11,23 @@ const out = process.argv[2];
     // analytics posts: swallow, don't log fake searches
     if (route.request().method() === 'POST') return route.fulfill({ status: 200, body: '{}', headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' } });
     const res = await route.fetch();
-    await route.fulfill({ response: res, headers: { ...res.headers(), 'access-control-allow-origin': '*' } });
+    let body = await res.body();
+    // Until the site sends `hours` on snapshot cards, fill them in from the public API (same data).
+    if (route.request().url().includes('/api/discovery/snapshot')) {
+      const snap = JSON.parse(body.toString());
+      const cards = Object.values(snap.cards);
+      if (!cards.some((c) => c.hours)) {
+        const ids = [...new Set(cards.map((c) => c.restaurant_id).filter(Boolean))];
+        const hours = new Map();
+        for (let i = 0; i < ids.length; i += 100) {
+          const r = await ctx.request.get(`https://www.abudhabifoodies.ae/api/restaurants?ids=${ids.slice(i, i + 100).join(',')}&limit=500`);
+          for (const x of (await r.json()).restaurants ?? []) hours.set(x.id, x.hours);
+        }
+        for (const c of cards) c.hours = hours.get(c.restaurant_id) ?? null;
+        body = Buffer.from(JSON.stringify(snap));
+      }
+    }
+    await route.fulfill({ status: res.status(), body, headers: { ...res.headers(), 'content-length': String(body.length), 'access-control-allow-origin': '*' } });
   });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('pageerror', e.message));
@@ -19,6 +35,9 @@ const out = process.argv[2];
   const t = (s) => page.getByText(s, { exact: true }).first();
   await t('What are you in the mood for?').waitFor({ timeout: 60000 });
   await page.waitForTimeout(3000);
+  // Dinner time in Abu Dhabi, so cards read "Open · closes …" as when people browse.
+  // Set only after the splash: a frozen clock from the start freezes its fade-out.
+  await page.clock.setFixedTime(new Date('2026-11-26T19:30:00+04:00'));
   await t('Italian').click();
   await t("What's your budget per person?").waitFor({ timeout: 30000 });
   await page.waitForTimeout(1500);

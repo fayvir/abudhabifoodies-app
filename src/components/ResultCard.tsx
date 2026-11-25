@@ -8,6 +8,8 @@ import { instagramUrl } from '../lib/links';
 import { priceAedLabel } from '../lib/price';
 import { buildShareText } from '../lib/share';
 import { useTheme } from '../theme/useTheme';
+import { OpenStatus } from './OpenStatus';
+import { OtherLocations } from './OtherLocations';
 import { PhotoCarousel } from './PhotoCarousel';
 import { RestaurantActions } from './RestaurantActions';
 import { stickerShadow } from './stickerShadow';
@@ -89,6 +91,8 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           {price ? <Text style={[styles.meta, styles.mono, { color: theme.textMuted }]}>{price}</Text> : null}
         </View>
 
+        <OpenStatus hours={card.hours} />
+
         <View style={styles.iconRow}>
           {card.restaurant_id ? (
             <Pressable
@@ -130,6 +134,8 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           googleMaps={card.google_maps}
           website={card.website}
         />
+
+        <OtherLocations locations={card.other_locations} />
       </View>
     </View>
   );

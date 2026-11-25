@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, 
 import { getRestaurantsByIds } from '../../src/api/client';
 import type { PublicRestaurant } from '../../src/api/types';
 import { AppHeader } from '../../src/components/AppHeader';
+import { OpenStatus } from '../../src/components/OpenStatus';
 import { PhotoCarousel } from '../../src/components/PhotoCarousel';
 import { RestaurantActions } from '../../src/components/RestaurantActions';
 import { stickerShadow } from '../../src/components/stickerShadow';
@@ -21,6 +22,7 @@ import { useBeenThere } from '../../src/favourites/useBeenThere';
 import { useFavourites } from '../../src/favourites/useFavourites';
 import { clearHistory, removeHistoryEntry } from '../../src/history/store';
 import { useHistory } from '../../src/history/useHistory';
+import type { Hours } from '../../src/lib/hours';
 import { priceTierSymbol } from '../../src/lib/price';
 import { useTheme } from '../../src/theme/useTheme';
 
@@ -43,13 +45,16 @@ export default function Favourites() {
   const [segment, setSegment] = useState<Segment>('want');
   // Google photo URLs are short-lived: a failed one is dropped, not retried (as on the result card).
   const [failedPhotos, setFailedPhotos] = useState<readonly string[]>([]);
-  // Restaurants for both lists load through one request set: moving a place
-  // between lists leaves this union unchanged, so it never refetches.
-  const ids = useMemo(
-    () => [...want.ids, ...been.ids.filter((id) => !want.ids.includes(id))],
-    [want.ids, been.ids],
+  // A Recent entry is keyed by restaurant id, or by name when the pick had no
+  // catalogue record (nothing to load for those).
+  const historyIds = useMemo(
+    () => history.entries.filter((e) => e.key !== e.name).map((e) => e.key),
+    [history.entries],
   );
-  const loaded = want.loaded && been.loaded;
+  // Restaurants for all three lists load through one request set: moving a place
+  // between lists leaves this union unchanged, so it never refetches.
+  const ids = useMemo(() => [...new Set([...want.ids, ...been.ids, ...historyIds])], [want.ids, been.ids, historyIds]);
+  const loaded = want.loaded && been.loaded && history.loaded;
   const activeIds = segment === 'been' ? been.ids : want.ids;
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   // Latest saved ids, so a reload (Try again) never needs `ids` as a dependency:
@@ -107,6 +112,10 @@ export default function Favourites() {
   }, [loaded, ids, fetchRows, fetchMissing]);
 
   const rows = load.kind === 'ready' ? load.rows.filter((r) => activeIds.includes(r.id)) : [];
+  const rowById = useMemo(
+    () => new Map(load.kind === 'ready' ? load.rows.map((r) => [r.id, r] as const) : []),
+    [load],
+  );
   const label = SEGMENTS.find((s) => s.value === segment)?.label ?? '';
   // Only when cards are actually on screen: never offer Clear above an empty state.
   const hasItems = segment === 'recent' ? history.entries.length > 0 : load.kind === 'ready' && rows.length > 0;
@@ -141,6 +150,8 @@ export default function Favourites() {
     extra: React.ReactNode,
     actions: { phone: string | null; googleMaps: string | null; website: string | null },
     rawPhotos: readonly string[] = [],
+    hours: Hours = null,
+    detailId: string | null = null,
   ) => {
     const meta = [area, priceTierSymbol(priceRange)].filter((m) => m && m !== '—').join(' · ');
     const photos = [...new Set(rawPhotos)].filter((u) => !failedPhotos.includes(u));
@@ -154,10 +165,20 @@ export default function Favourites() {
         ) : null}
         <View style={styles.rowBody}>
           <View style={styles.rowHead}>
-            <View style={styles.rowTitle}>
-              <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${name}`}
+              disabled={!detailId}
+              onPress={() => detailId && router.push({ pathname: '/restaurant/[id]', params: { id: detailId } })}
+              style={styles.rowTitle}
+            >
+              <View style={styles.nameRow}>
+                <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                {detailId ? <Ionicons name="chevron-forward" size={18} color={theme.textMuted} style={styles.chevron} /> : null}
+              </View>
               {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
-            </View>
+              <OpenStatus hours={hours} />
+            </Pressable>
             {removeButton(name, onRemove)}
           </View>
           {extra}
@@ -198,6 +219,9 @@ export default function Favourites() {
                 <Text style={[styles.meta, { color: theme.textSecondary }]}>{item.answers.join(' · ')}</Text>
               ) : null,
               { phone: item.phone, googleMaps: item.google_maps, website: item.website },
+              rowById.get(item.key)?.photos ?? [],
+              rowById.get(item.key)?.hours ?? null,
+              rowById.has(item.key) ? item.key : null,
             )
           }
         />
@@ -258,6 +282,8 @@ export default function Favourites() {
             </Pressable>,
             { phone: item.phone, googleMaps: item.google_maps, website: item.website },
             item.photos ?? [],
+            item.hours,
+            item.id,
           )
         }
       />
@@ -313,7 +339,9 @@ const styles = StyleSheet.create({
   rowBody: { padding: 14, gap: 12 },
   rowHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   rowTitle: { flex: 1, gap: 4 },
-  name: { fontSize: 18, fontWeight: '800' },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
+  chevron: { marginTop: 3 },
+  name: { flexShrink: 1, fontSize: 18, fontWeight: '800' },
   meta: { fontSize: 13 },
   remove: { minWidth: 44, minHeight: 44, borderWidth: 2, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   move: { minHeight: 44, borderWidth: 2, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },

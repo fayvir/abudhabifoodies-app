@@ -9,6 +9,7 @@ import { __resetHistoryForTests, getHistoryState, recordPick } from '../../histo
 import { opt, pick, question, restaurant, snapshot } from '../../testing/builders';
 import Favourites from '../../../app/(tabs)/favourites';
 import Discover from '../../../app/(tabs)/index';
+import RestaurantDetail from '../../../app/restaurant/[id]';
 import { __resetSnapshotForTests } from '../../snapshot/useSnapshot';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -92,6 +93,18 @@ describe('Favourites screen', () => {
     const view = await open(['a']);
     await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
     expect(view.queryByTestId('photo-carousel')).toBeNull();
+  });
+
+  it('tapping a saved restaurant opens its detail page', async () => {
+    await AsyncStorage.setItem(FAVOURITES_KEY, JSON.stringify(['a']));
+    api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ id: 'a', name: 'Alpha Grill', hours: { day_0: 'Monday: Closed' } })] });
+    const view = await renderRouter(
+      { index: Discover, favourites: Favourites, 'restaurant/[id]': RestaurantDetail },
+      { initialUrl: '/favourites' },
+    );
+    await fireEvent.press(await view.findByRole('button', { name: 'Open Alpha Grill' }));
+    await waitFor(() => expect(view.getByText('Opening hours')).toBeTruthy());
+    expect(view).toHavePathname('/restaurant/a');
   });
 
   it('folds price_range 4 into $$$', async () => {
@@ -343,7 +356,7 @@ describe('Saved screen: Recent', () => {
     expect(api.getRestaurantsByIds).not.toHaveBeenCalled();
   });
 
-  it('lists recent picks newest first with the answers behind them, without a network request', async () => {
+  it('lists recent picks newest first with the answers behind them', async () => {
     await recordPick(pick({ restaurant_id: 'a', restaurant_name: 'Alpha Grill' }), ['Arabic', 'Mid']);
     await recordPick(pick({ restaurant_id: 'b', restaurant_name: 'Beta Bar' }), ['Italian']);
     const view = await open(null);
@@ -353,7 +366,32 @@ describe('Saved screen: Recent', () => {
     expect(tree.indexOf('Beta Bar')).toBeLessThan(tree.indexOf('Alpha Grill'));
     expect(view.getByText('Arabic · Mid')).toBeTruthy();
     expect(view.getByRole('button', { name: 'Call Alpha Grill' })).toBeTruthy();
-    expect(api.getRestaurantsByIds).not.toHaveBeenCalled();
+  });
+
+  it('loads photos and opening hours for recent picks by restaurant id, never by name', async () => {
+    api.getRestaurantsByIds.mockResolvedValue({
+      ok: true,
+      data: [restaurant({ id: 'a', name: 'Alpha Grill', photos: ['https://lh3.googleusercontent.com/p'], hours: { day_0: 'Monday: Open 24 hours', day_1: 'Tuesday: Open 24 hours', day_2: 'Wednesday: Open 24 hours', day_3: 'Thursday: Open 24 hours', day_4: 'Friday: Open 24 hours', day_5: 'Saturday: Open 24 hours', day_6: 'Sunday: Open 24 hours' } })],
+    });
+    await recordPick(pick({ restaurant_id: 'a', restaurant_name: 'Alpha Grill' }), []);
+    await recordPick(pick({ restaurant_id: null, restaurant_name: 'Name Only' }), []);
+    const view = await open(null);
+    await fireEvent.press(await view.findByRole('tab', { name: 'Recent' }));
+    await waitFor(() => expect(view.getByTestId('result-photo-0')).toBeTruthy());
+    expect(api.getRestaurantsByIds).toHaveBeenCalledWith(['a']);
+    expect(view.getByText('Open 24 hours')).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Open Alpha Grill' })).toBeEnabled();
+    expect(view.getByRole('button', { name: 'Open Name Only' })).toBeDisabled();
+  });
+
+  it('a failed photo load leaves Recent working without photos', async () => {
+    api.getRestaurantsByIds.mockResolvedValue({ ok: false, message: 'x' });
+    await recordPick(pick({ restaurant_id: 'a', restaurant_name: 'Alpha Grill' }), ['Arabic']);
+    const view = await open(null);
+    await fireEvent.press(await view.findByRole('tab', { name: 'Recent' }));
+    await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
+    expect(view.queryByTestId('photo-carousel')).toBeNull();
+    expect(view.getByText('Arabic')).toBeTruthy();
   });
 
   it('the trash button removes one recent pick and leaves the others', async () => {

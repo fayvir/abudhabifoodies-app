@@ -7,8 +7,8 @@ const base = path.resolve(process.argv[2] || 'store-screenshots/work');
 require('fs').mkdirSync(path.join(base, 'app-store', '6.9in'), { recursive: true });
 require('fs').mkdirSync(path.join(base, 'app-store', '6.3in'), { recursive: true });
 const shots = [
-  { n: '01-questions', bg: 't', img: 'raw-questions.png', h: 'Answer a few <em>questions</em>', p: 'Your craving, your budget, your vibe. That’s it.' },
-  { n: '02-result', bg: 'k', img: 'raw-result.png', h: 'Get the <em>best pick</em>', p: 'Hand-picked by @abudhabifoodies. No endless scrolling.' },
+  { n: '01-questions', bg: 't', img: 'raw-questions.png', h: 'Answer a few <em>questions</em>', p: 'Your craving, your budget, your vibe.' },
+  { n: '02-result', bg: 'k', img: 'raw-result.png', h: 'Get the <em>best pick</em>', p: 'Hand-picked by you, the Abu Dhabi Foodies community. No more endless scrolling.' },
   { n: '03-saved', bg: 't', img: 'raw-saved.png', h: 'Save it.<br><em>Eat well.</em>', p: 'Keep a list of spots to try and places you’ve been.' },
 ];
 const sizes = [{ dir: '6.9in', w: 440, h: 956 }, { dir: '6.3in', w: 402, h: 874 }];

@@ -57,6 +57,22 @@ export interface ResultCard {
   advertiser_name?: string | null;
   /** Curated @abudhabifoodies post/Reel for this restaurant; optional until the site API sends it. */
   instagram_url?: string | null;
+  /** Google Places hours, { day_0: "Monday: …" … day_6 }; optional until the site API sends it. */
+  hours?: Record<string, string> | null;
+  /** The brand's other open locations; absent for a single-location restaurant. */
+  other_locations?: BranchLocation[];
+}
+
+/** One other location of a multi-location brand (site: BranchLocation). */
+export interface BranchLocation {
+  id: string;
+  name: string;
+  area: string | null;
+  address: string | null;
+  phone: string | null;
+  google_maps: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 /**

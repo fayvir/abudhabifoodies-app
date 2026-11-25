@@ -227,3 +227,37 @@ describe('ResultCard Watch on Instagram', () => {
     await waitFor(() => expect(alert).toHaveBeenCalledWith("Couldn't open that link"));
   });
 });
+
+describe('ResultCard opening hours and other locations', () => {
+  const allWeek = (text: string) => Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((i) => [`day_${i}`, `Day: ${text}`]));
+
+  it('shows open-now status when the card has hours, nothing when it has none', async () => {
+    const view = await render(<ResultCard card={pick({ hours: allWeek('Open 24 hours') })} />);
+    expect(view.getByText('Open 24 hours')).toBeTruthy();
+    const none = await render(<ResultCard card={pick({ hours: undefined })} />);
+    expect(none.queryByTestId('open-status')).toBeNull();
+  });
+
+  it('lists other locations on tap, each with Call and Directions', async () => {
+    const card = pick({
+      other_locations: [
+        { id: 'l1', name: 'Operation Falafel', area: 'Yas Island', address: 'Yas Mall', phone: '+9712000', google_maps: 'https://maps.google.com/?cid=2', lat: null, lng: null },
+        { id: 'l2', name: 'Operation Falafel', area: null, address: null, phone: null, google_maps: 'https://maps.google.com/?cid=3', lat: null, lng: null },
+      ],
+    });
+    const view = await render(<ResultCard card={card} />);
+    expect(view.queryByTestId('other-location')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Also at 2 other locations' }));
+    expect(view.getAllByTestId('other-location')).toHaveLength(2);
+    expect(view.getByText('Yas Mall')).toBeTruthy();
+    await fireEvent.press(view.getByRole('button', { name: 'Call Operation Falafel, Yas Island' }));
+    expect(openURL).toHaveBeenCalledWith('tel:+9712000');
+  });
+
+  it('says "location" for one, and shows nothing without other locations', async () => {
+    const one = await render(<ResultCard card={pick({ other_locations: [{ id: 'l1', name: 'X', area: 'Khalifa City', address: null, phone: null, google_maps: null, lat: null, lng: null }] })} />);
+    expect(one.getByRole('button', { name: 'Also at 1 other location' })).toBeTruthy();
+    const none = await render(<ResultCard card={pick()} />);
+    expect(none.queryByText(/Also at/)).toBeNull();
+  });
+});
