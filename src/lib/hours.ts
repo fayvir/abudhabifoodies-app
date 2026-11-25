@@ -60,6 +60,11 @@ function abuDhabiNow(now: Date): { day: number; minutes: number } {
   return { day: (t.getUTCDay() + 6) % 7, minutes: t.getUTCHours() * 60 + t.getUTCMinutes() };
 }
 
+/** Today's day in Abu Dhabi, 0 = Monday … 6 = Sunday (the same order as day_0 … day_6 and weekHours). */
+export function abuDhabiDayIndex(now: Date = new Date()): number {
+  return abuDhabiNow(now).day;
+}
+
 /** 1380 -> "11 PM", 1410 -> "11:30 PM", 0 -> "midnight". */
 export function formatTime(minutes: number): string {
   const m = ((minutes % DAY) + DAY) % DAY;
@@ -108,7 +113,7 @@ export function openStatus(hours: Hours, now: Date = new Date()): OpenStatus | n
 }
 
 /** Monday-first rows for a full week, e.g. { day: 'Monday', text: '12 PM – midnight' }; [] without data. */
-export function weekHours(hours: Hours): { day: string; text: string }[] {
+export function weekHours(hours: Hours): { day: string; index: number; text: string }[] {
   if (!hours || typeof hours !== 'object') return [];
   const rows = DAY_NAMES.map((day, i) => {
     const raw = hours[`day_${i}`];
@@ -119,7 +124,7 @@ export function weekHours(hours: Hours): { day: string; text: string }[] {
     else if (parsed.kind === 'allDay') text = 'Open 24 hours';
     else if (parsed.kind === 'closed') text = 'Closed';
     else text = parsed.windows.map(([s, e]) => `${formatTime(s)} – ${formatTime(e)}`).join(', ');
-    return { day, text };
+    return { day, index: i, text };
   });
-  return rows.filter((r): r is { day: string; text: string } => r !== null);
+  return rows.filter((r): r is { day: string; index: number; text: string } => r !== null);
 }

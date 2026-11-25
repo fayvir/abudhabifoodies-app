@@ -6,13 +6,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getRestaurantsByIds } from '../../src/api/client';
 import type { PublicRestaurant } from '../../src/api/types';
+import { ExpandableNote } from '../../src/components/ExpandableNote';
 import { OpenStatus } from '../../src/components/OpenStatus';
 import { PhotoCarousel } from '../../src/components/PhotoCarousel';
 import { RestaurantActions } from '../../src/components/RestaurantActions';
 import { stickerShadow } from '../../src/components/stickerShadow';
 import { useFavourites } from '../../src/favourites/useFavourites';
-import { weekHours } from '../../src/lib/hours';
+import { abuDhabiDayIndex, weekHours } from '../../src/lib/hours';
 import { priceAedLabel } from '../../src/lib/price';
+import { noteFor } from '../../src/snapshot/notes';
+import { useSnapshot } from '../../src/snapshot/useSnapshot';
 import { useTheme } from '../../src/theme/useTheme';
 
 type Load = { kind: 'loading' } | { kind: 'error' } | { kind: 'missing' } | { kind: 'ready'; r: PublicRestaurant };
@@ -23,6 +26,7 @@ export default function RestaurantDetail() {
   const dark = useColorScheme() === 'dark';
   const { id } = useLocalSearchParams<{ id: string }>();
   const favourites = useFavourites();
+  const { snapshot } = useSnapshot();
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [failed, setFailed] = useState<readonly string[]>([]);
 
@@ -68,6 +72,8 @@ export default function RestaurantDetail() {
     const price = priceAedLabel(r.price_range);
     const saved = favourites.isFavourite(r.id);
     const week = weekHours(r.hours);
+    const note = noteFor(snapshot, r.id);
+    const today = abuDhabiDayIndex();
     body = (
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { backgroundColor: theme.bgElevated, borderColor: theme.borderStrong }, stickerShadow(theme, dark)]}>
@@ -88,6 +94,7 @@ export default function RestaurantDetail() {
                 </View>
               ) : null}
             </View>
+            {note ? <ExpandableNote text={note} style={{ ...styles.note, color: theme.textSecondary }} /> : null}
             <View style={styles.chips}>
               {(r.cuisine ?? []).map((c) => (
                 <View key={c} style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.bgSecondary }]}>
@@ -98,28 +105,48 @@ export default function RestaurantDetail() {
               {price ? <Text style={[styles.meta, styles.bold, { color: theme.textMuted }]}>{price}</Text> : null}
             </View>
             <OpenStatus hours={r.hours} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={saved ? 'Remove from favourites' : 'Save to favourites'}
-              onPress={() => void favourites.toggle(r.id)}
-              style={[styles.save, { borderColor: theme.borderStrong }]}
-            >
-              <Ionicons name={saved ? 'heart' : 'heart-outline'} size={20} color={saved ? theme.primary : theme.text} />
-              <Text style={[styles.saveText, { color: theme.text }]}>{saved ? 'Saved' : 'Save'}</Text>
-            </Pressable>
-            <RestaurantActions name={r.name} phone={r.phone} googleMaps={r.google_maps} website={r.website} />
+            <RestaurantActions
+              name={r.name}
+              phone={r.phone}
+              googleMaps={r.google_maps}
+              website={r.website}
+              iconOnly
+              before={
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={saved ? 'Remove from favourites' : 'Save to favourites'}
+                  onPress={() => void favourites.toggle(r.id)}
+                  style={[styles.save, { borderColor: theme.borderStrong, backgroundColor: theme.bgElevated }]}
+                >
+                  <Ionicons name={saved ? 'heart' : 'heart-outline'} size={22} color={saved ? theme.primary : theme.text} />
+                </Pressable>
+              }
+            />
           </View>
         </View>
 
         {week.length > 0 ? (
           <View testID="week-hours" style={[styles.hours, { borderColor: theme.border, backgroundColor: theme.bgSecondary }]}>
             <Text style={[styles.hoursTitle, { color: theme.text }]}>Opening hours</Text>
-            {week.map((w) => (
-              <View key={w.day} style={styles.hoursRow}>
-                <Text style={[styles.hoursDay, { color: theme.text }]}>{w.day}</Text>
-                <Text style={[styles.hoursText, { color: theme.textSecondary }]}>{w.text}</Text>
-              </View>
-            ))}
+            {week.map((w) => {
+              const isToday = w.index === today;
+              return (
+                <View
+                  key={w.day}
+                  testID={isToday ? 'hours-today' : undefined}
+                  accessible
+                  accessibilityLabel={`${isToday ? 'Today, ' : ''}${w.day}: ${w.text}`}
+                  style={styles.hoursRow}
+                >
+                  <Text style={[styles.hoursDay, { color: isToday ? theme.primaryDeep : theme.text }, isToday && styles.today]}>
+                    {w.day}
+                  </Text>
+                  <Text style={[styles.hoursText, { color: isToday ? theme.primaryDeep : theme.textSecondary }, isToday && styles.today]}>
+                    {w.text}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         ) : null}
       </ScrollView>
@@ -162,11 +189,12 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '600' },
   meta: { fontSize: 12 },
   bold: { fontWeight: '700' },
-  save: { alignSelf: 'flex-start', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 2, borderRadius: 14, paddingHorizontal: 14 },
-  saveText: { fontSize: 14, fontWeight: '700' },
+  note: { fontSize: 15, fontStyle: 'italic', lineHeight: 21 },
+  save: { flex: 1, minHeight: 44, borderWidth: 2, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   hours: { borderWidth: 1.5, borderRadius: 16, padding: 16, gap: 8 },
   hoursTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   hoursRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   hoursDay: { fontSize: 14, fontWeight: '600' },
   hoursText: { flex: 1, textAlign: 'right', fontSize: 14 },
+  today: { fontWeight: '800' },
 });

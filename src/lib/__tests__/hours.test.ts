@@ -1,4 +1,4 @@
-import { formatTime, openStatus, weekHours } from '../hours';
+import { abuDhabiDayIndex, formatTime, openStatus, weekHours } from '../hours';
 
 // Abu Dhabi is UTC+4: 2026-11-23 is a Monday.
 const at = (hhmm: string, date = '2026-11-23') => new Date(`${date}T${hhmm}:00+04:00`);
@@ -67,17 +67,26 @@ describe('openStatus', () => {
   });
 });
 
+describe('abuDhabiDayIndex', () => {
+  it('is Monday-first and in Abu Dhabi time', () => {
+    expect(abuDhabiDayIndex(at('12:00'))).toBe(0);
+    // Sunday 22:00 UTC is already Monday 02:00 in Abu Dhabi.
+    expect(abuDhabiDayIndex(new Date('2026-11-22T22:00:00Z'))).toBe(0);
+    expect(abuDhabiDayIndex(new Date('2026-11-22T12:00:00Z'))).toBe(6);
+  });
+});
+
 describe('weekHours', () => {
   it('lists Monday first in a short, readable form', () => {
     const rows = weekHours({ day_1: 'Tuesday: Closed', day_0: `Monday: 12:00${NNBSP}PM${THIN}–${THIN}12:00${NNBSP}AM` });
     expect(rows).toEqual([
-      { day: 'Monday', text: '12 PM – midnight' },
-      { day: 'Tuesday', text: 'Closed' },
+      { day: 'Monday', index: 0, text: '12 PM – midnight' },
+      { day: 'Tuesday', index: 1, text: 'Closed' },
     ]);
   });
 
   it('shows unreadable text as Google wrote it, and nothing without data', () => {
-    expect(weekHours({ day_0: 'Monday: by appointment' })).toEqual([{ day: 'Monday', text: 'by appointment' }]);
+    expect(weekHours({ day_0: 'Monday: by appointment' })).toEqual([{ day: 'Monday', index: 0, text: 'by appointment' }]);
     expect(weekHours(null)).toEqual([]);
   });
 });
