@@ -70,7 +70,7 @@ export function RestaurantActions({ name, phone, googleMaps, website, iconOnly =
           onPress={() => open(site)}
           style={[styles.button, { borderColor: theme.onAccent, backgroundColor: theme.primary }]}
         >
-          {content('Reserve', 'calendar-outline', theme.onAccent)}
+          {content('Reserve', 'globe-outline', theme.onAccent)}
         </Pressable>
       ) : null}
     </View>
