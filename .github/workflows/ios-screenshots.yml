@@ -94,7 +94,7 @@ jobs:
       - name: Collect both App Store sizes
         run: |
           mkdir -p app-store/6.9in app-store/6.3in
-          find ~/.maestro/tests screenshots -name '0*.png' -exec cp {} app-store/6.9in/ \;
+          find ~/.maestro/tests screenshots -name 'raw-*.png' -exec cp {} app-store/6.9in/ \;
           ls app-store/6.9in/*.png >/dev/null   # fail if Maestro produced nothing
           for f in app-store/6.9in/*.png; do
             out="app-store/6.3in/$(basename "$f")"

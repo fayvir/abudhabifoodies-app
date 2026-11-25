@@ -24,7 +24,7 @@ describe('app.json identity', () => {
   });
 
   it('has version fields, portrait phone-only, no encryption export questionnaire', () => {
-    expect(expo.version).toBe('1.0.0');
+    expect(expo.version).toBe('1.0.1');
     expect(expo.ios.buildNumber).toBe('1');
     expect(expo.android.versionCode).toBe(1);
     expect(expo.ios.supportsTablet).toBe(false);
