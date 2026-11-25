@@ -71,6 +71,29 @@ describe('Favourites screen', () => {
     expect(view.getByText('Saadiyat · $$$')).toBeTruthy();
   });
 
+  it('shows a saved restaurant\'s photos, dropping one that fails to load', async () => {
+    api.getRestaurantsByIds.mockResolvedValue({
+      ok: true,
+      data: [restaurant({ id: 'a', name: 'Alpha Grill', photos: ['https://lh3.googleusercontent.com/x', 'https://lh3.googleusercontent.com/y'] })],
+    });
+    const view = await open(['a']);
+    await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
+    expect(view.getByTestId('photo-carousel')).toBeTruthy();
+    expect(view.getByTestId('result-photo-1')).toBeTruthy();
+    await act(async () => {
+      fireEvent(view.getByTestId('result-photo-0'), 'error');
+    });
+    expect(view.queryByTestId('result-photo-1')).toBeNull();
+    expect(view.getByTestId('result-photo-0')).toBeTruthy();
+  });
+
+  it('shows no photo area for a saved restaurant without photos', async () => {
+    api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ id: 'a', name: 'Alpha Grill', photos: [] })] });
+    const view = await open(['a']);
+    await waitFor(() => expect(view.getByText('Alpha Grill')).toBeTruthy());
+    expect(view.queryByTestId('photo-carousel')).toBeNull();
+  });
+
   it('folds price_range 4 into $$$', async () => {
     api.getRestaurantsByIds.mockResolvedValue({ ok: true, data: [restaurant({ price_range: 4 })] });
     const view = await open(['rest-1']);

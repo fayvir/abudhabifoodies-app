@@ -14,8 +14,6 @@ appId: ae.abudhabifoodies.app
     timeout: 30000
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: screenshots/03-discover
-
 - tapOn: "Italian"
 - extendedWaitUntil:
     visible: "What's your budget per person?"
@@ -24,7 +22,7 @@ appId: ae.abudhabifoodies.app
 - extendedWaitUntil:
     visible: "Date Night"
     timeout: 30000
-- takeScreenshot: screenshots/02-questions
+- takeScreenshot: screenshots/raw-questions
 
 - tapOn: "Date Night"
 - extendedWaitUntil:
@@ -40,7 +38,7 @@ appId: ae.abudhabifoodies.app
     optional: true
 - waitForAnimationToEnd:
     timeout: 5000
-- takeScreenshot: screenshots/01-result
+- takeScreenshot: screenshots/raw-result
 - tapOn: "Save to favourites"
 
 # A second saved place so the Saved list is not a single card.
@@ -67,18 +65,12 @@ appId: ae.abudhabifoodies.app
 - extendedWaitUntil:
     visible: "Want To Try"
     timeout: 30000
-- waitForAnimationToEnd:
-    timeout: 5000
-- takeScreenshot: screenshots/04-saved
-
-- tapOn: "Recent"
-- waitForAnimationToEnd:
-    timeout: 5000
-- takeScreenshot: screenshots/05-recent
-
-- tapOn:
-    id: "tab-settings"
+# Saved cards show the restaurant's photos; give them time to download.
 - extendedWaitUntil:
-    visible: "Appearance"
-    timeout: 30000
-- takeScreenshot: screenshots/06-settings
+    visible:
+      id: "result-photo-0"
+    timeout: 15000
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: screenshots/raw-saved

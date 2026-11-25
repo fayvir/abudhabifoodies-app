@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, 
 import { getRestaurantsByIds } from '../../src/api/client';
 import type { PublicRestaurant } from '../../src/api/types';
 import { AppHeader } from '../../src/components/AppHeader';
+import { PhotoCarousel } from '../../src/components/PhotoCarousel';
 import { RestaurantActions } from '../../src/components/RestaurantActions';
 import { stickerShadow } from '../../src/components/stickerShadow';
 import {
@@ -40,6 +41,8 @@ export default function Favourites() {
   const been = useBeenThere();
   const history = useHistory();
   const [segment, setSegment] = useState<Segment>('want');
+  // Google photo URLs are short-lived: a failed one is dropped, not retried (as on the result card).
+  const [failedPhotos, setFailedPhotos] = useState<readonly string[]>([]);
   // Restaurants for both lists load through one request set: moving a place
   // between lists leaves this union unchanged, so it never refetches.
   const ids = useMemo(
@@ -137,22 +140,29 @@ export default function Favourites() {
     onRemove: () => void,
     extra: React.ReactNode,
     actions: { phone: string | null; googleMaps: string | null; website: string | null },
+    rawPhotos: readonly string[] = [],
   ) => {
     const meta = [area, priceTierSymbol(priceRange)].filter((m) => m && m !== '—').join(' · ');
+    const photos = [...new Set(rawPhotos)].filter((u) => !failedPhotos.includes(u));
     return (
       <View
         key={key}
         style={[styles.row, { backgroundColor: theme.bgElevated, borderColor: theme.borderStrong }, stickerShadow(theme, dark, 3)]}
       >
-        <View style={styles.rowHead}>
-          <View style={styles.rowTitle}>
-            <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
-            {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
+        {photos.length > 0 ? (
+          <PhotoCarousel photos={photos} onPhotoError={(url) => setFailedPhotos((f) => (f.includes(url) ? f : [...f, url]))} />
+        ) : null}
+        <View style={styles.rowBody}>
+          <View style={styles.rowHead}>
+            <View style={styles.rowTitle}>
+              <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+              {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
+            </View>
+            {removeButton(name, onRemove)}
           </View>
-          {removeButton(name, onRemove)}
+          {extra}
+          <RestaurantActions name={name} phone={actions.phone} googleMaps={actions.googleMaps} website={actions.website} />
         </View>
-        {extra}
-        <RestaurantActions name={name} phone={actions.phone} googleMaps={actions.googleMaps} website={actions.website} />
       </View>
     );
   };
@@ -247,6 +257,7 @@ export default function Favourites() {
               <Text style={[styles.moveText, { color: theme.text }]}>{segment === 'want' ? 'Been There' : 'Move back'}</Text>
             </Pressable>,
             { phone: item.phone, googleMaps: item.google_maps, website: item.website },
+            item.photos ?? [],
           )
         }
       />
@@ -298,7 +309,8 @@ const styles = StyleSheet.create({
   primary: { minHeight: 44, borderWidth: 2, borderRadius: 14, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center' },
   primaryText: { fontSize: 14, fontWeight: '700' },
   list: { padding: 16, gap: 16 },
-  row: { borderWidth: 2, borderRadius: 20, padding: 14, gap: 12, marginRight: 3, marginBottom: 3 },
+  row: { borderWidth: 2, borderRadius: 20, marginRight: 3, marginBottom: 3 },
+  rowBody: { padding: 14, gap: 12 },
   rowHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   rowTitle: { flex: 1, gap: 4 },
   name: { fontSize: 18, fontWeight: '800' },
