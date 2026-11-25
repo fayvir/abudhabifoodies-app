@@ -27,7 +27,9 @@ const out = process.argv[2];
         body = Buffer.from(JSON.stringify(snap));
       }
     }
-    await route.fulfill({ status: res.status(), body, headers: { ...res.headers(), 'content-length': String(body.length), 'access-control-allow-origin': '*' } });
+    const headers = { ...res.headers(), 'content-length': String(body.length), 'access-control-allow-origin': '*' };
+    delete headers['content-encoding']; // body() is already decoded
+    await route.fulfill({ status: res.status(), body, headers });
   });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('pageerror', e.message));

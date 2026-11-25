@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { openStatus, type Hours } from '../lib/hours';
@@ -6,6 +7,14 @@ import { useTheme } from '../theme/useTheme';
 /** "Open · closes 11 PM" (green dot) / "Closed · opens 6 PM" (grey dot); nothing without readable hours. */
 export function OpenStatus({ hours, now }: { hours: Hours; now?: Date }) {
   const theme = useTheme();
+  // Re-check every minute: tabs stay mounted, so "Open" must turn to "Closed" on its own.
+  const [, setTick] = useState(0);
+  const live = !now && !!hours;
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [live]);
   const status = openStatus(hours, now);
   if (!status) return null;
   const color = status.open ? theme.success : theme.textMuted;

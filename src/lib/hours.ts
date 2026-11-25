@@ -98,7 +98,13 @@ export function openStatus(hours: Hours, now: Date = new Date()): OpenStatus | n
     }
   }
   const next = today.windows.map(([s]) => s).filter((s) => s > minutes).sort((a, b) => a - b)[0];
-  return { open: false, label: next !== undefined ? `Closed · opens ${formatTime(next)}` : 'Closed now' };
+  if (next !== undefined) return { open: false, label: `Closed · opens ${formatTime(next)}` };
+  const tomorrow = parseDay(hours[`day_${(day + 1) % 7}`]);
+  if (tomorrow?.kind === 'windows') {
+    const first = Math.min(...tomorrow.windows.map(([s]) => s));
+    return { open: false, label: `Closed · opens ${formatTime(first)} tomorrow` };
+  }
+  return { open: false, label: 'Closed now' };
 }
 
 /** Monday-first rows for a full week, e.g. { day: 'Monday', text: '12 PM – midnight' }; [] without data. */

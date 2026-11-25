@@ -165,20 +165,29 @@ export default function Favourites() {
         ) : null}
         <View style={styles.rowBody}>
           <View style={styles.rowHead}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${name}`}
-              disabled={!detailId}
-              onPress={() => detailId && router.push({ pathname: '/restaurant/[id]', params: { id: detailId } })}
-              style={styles.rowTitle}
-            >
-              <View style={styles.nameRow}>
-                <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
-                {detailId ? <Ionicons name="chevron-forward" size={18} color={theme.textMuted} style={styles.chevron} /> : null}
-              </View>
-              {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
+            <View style={styles.rowTitle}>
+              {detailId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${name}`}
+                  onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: detailId } })}
+                  style={styles.rowTitle}
+                >
+                  <View style={styles.nameRow}>
+                    <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} style={styles.chevron} />
+                  </View>
+                  {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
+                </Pressable>
+              ) : (
+                <>
+                  <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                  {meta ? <Text style={[styles.meta, { color: theme.textMuted }]}>{meta}</Text> : null}
+                </>
+              )}
+              {/* Outside the button: its label would hide this from screen readers. */}
               <OpenStatus hours={hours} />
-            </Pressable>
+            </View>
             {removeButton(name, onRemove)}
           </View>
           {extra}

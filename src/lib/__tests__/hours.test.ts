@@ -24,6 +24,8 @@ describe('openStatus', () => {
     expect(openStatus(google, at('13:00'))).toEqual({ open: true, label: 'Open · closes 11 PM' });
     expect(openStatus(google, at('10:00'))).toEqual({ open: false, label: 'Closed · opens 12 PM' });
     expect(openStatus(google, at('23:30'))).toEqual({ open: false, label: 'Closed now' });
+    const twoDays = { ...google, day_1: 'Tuesday: 9:30 AM – 11:00 PM' };
+    expect(openStatus(twoDays, at('23:30'))).toEqual({ open: false, label: 'Closed · opens 9:30 AM tomorrow' });
   });
 
   it('uses Abu Dhabi time, not UTC', () => {

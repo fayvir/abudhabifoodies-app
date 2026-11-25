@@ -380,8 +380,9 @@ describe('Saved screen: Recent', () => {
     await waitFor(() => expect(view.getByTestId('result-photo-0')).toBeTruthy());
     expect(api.getRestaurantsByIds).toHaveBeenCalledWith(['a']);
     expect(view.getByText('Open 24 hours')).toBeTruthy();
-    expect(view.getByRole('button', { name: 'Open Alpha Grill' })).toBeEnabled();
-    expect(view.getByRole('button', { name: 'Open Name Only' })).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Open Alpha Grill' })).toBeTruthy();
+    expect(view.getByText('Name Only')).toBeTruthy();
+    expect(view.queryByRole('button', { name: 'Open Name Only' })).toBeNull();
   });
 
   it('a failed photo load leaves Recent working without photos', async () => {
