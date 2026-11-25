@@ -6,12 +6,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getRestaurantsByIds } from '../../src/api/client';
 import type { PublicRestaurant } from '../../src/api/types';
+import { ExpandableNote } from '../../src/components/ExpandableNote';
 import { OpenStatus } from '../../src/components/OpenStatus';
 import { PhotoCarousel } from '../../src/components/PhotoCarousel';
 import { RestaurantActions } from '../../src/components/RestaurantActions';
 import { stickerShadow } from '../../src/components/stickerShadow';
 import { useFavourites } from '../../src/favourites/useFavourites';
-import { weekHours } from '../../src/lib/hours';
+import { abuDhabiDayIndex, weekHours } from '../../src/lib/hours';
 import { priceAedLabel } from '../../src/lib/price';
 import { noteFor } from '../../src/snapshot/notes';
 import { useSnapshot } from '../../src/snapshot/useSnapshot';
@@ -72,6 +73,7 @@ export default function RestaurantDetail() {
     const saved = favourites.isFavourite(r.id);
     const week = weekHours(r.hours);
     const note = noteFor(snapshot, r.id);
+    const today = abuDhabiDayIndex();
     body = (
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.card, { backgroundColor: theme.bgElevated, borderColor: theme.borderStrong }, stickerShadow(theme, dark)]}>
@@ -92,7 +94,7 @@ export default function RestaurantDetail() {
                 </View>
               ) : null}
             </View>
-            {note ? <Text style={[styles.note, { color: theme.textSecondary }]}>{`“${note}”`}</Text> : null}
+            {note ? <ExpandableNote text={note} style={{ ...styles.note, color: theme.textSecondary }} /> : null}
             <View style={styles.chips}>
               {(r.cuisine ?? []).map((c) => (
                 <View key={c} style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.bgSecondary }]}>
@@ -126,12 +128,25 @@ export default function RestaurantDetail() {
         {week.length > 0 ? (
           <View testID="week-hours" style={[styles.hours, { borderColor: theme.border, backgroundColor: theme.bgSecondary }]}>
             <Text style={[styles.hoursTitle, { color: theme.text }]}>Opening hours</Text>
-            {week.map((w) => (
-              <View key={w.day} style={styles.hoursRow}>
-                <Text style={[styles.hoursDay, { color: theme.text }]}>{w.day}</Text>
-                <Text style={[styles.hoursText, { color: theme.textSecondary }]}>{w.text}</Text>
-              </View>
-            ))}
+            {week.map((w) => {
+              const isToday = w.index === today;
+              return (
+                <View
+                  key={w.day}
+                  testID={isToday ? 'hours-today' : undefined}
+                  accessible
+                  accessibilityLabel={`${isToday ? 'Today, ' : ''}${w.day}: ${w.text}`}
+                  style={styles.hoursRow}
+                >
+                  <Text style={[styles.hoursDay, { color: isToday ? theme.primaryDeep : theme.text }, isToday && styles.today]}>
+                    {w.day}
+                  </Text>
+                  <Text style={[styles.hoursText, { color: isToday ? theme.primaryDeep : theme.textSecondary }, isToday && styles.today]}>
+                    {w.text}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         ) : null}
       </ScrollView>
@@ -181,4 +196,5 @@ const styles = StyleSheet.create({
   hoursRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   hoursDay: { fontSize: 14, fontWeight: '600' },
   hoursText: { flex: 1, textAlign: 'right', fontSize: 14 },
+  today: { fontWeight: '800' },
 });
